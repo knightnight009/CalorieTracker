@@ -23,6 +23,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet tool restore
+      # dotnet ef builds the project but doesn't restore NuGet packages itself.
+      - run: dotnet restore
       - name: Show pending migrations
         run: dotnet ef migrations list --project src/CalorieTracker.Web
         env:
