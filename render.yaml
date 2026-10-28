@@ -1,0 +1,32 @@
+# Render Blueprint: one free Docker web service. The database is Neon (not Render Postgres,
+# whose free tier expires after 30 days). Secrets are entered in the Render dashboard.
+services:
+  - type: web
+    name: nutritrack
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # Deploy only after the GitHub Actions checks on the commit pass.
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        value: gemini-2.5-flash
+      - key: USDA_API_KEY
+        sync: false
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: Auth__RegistrationEnabled
+        value: "true"

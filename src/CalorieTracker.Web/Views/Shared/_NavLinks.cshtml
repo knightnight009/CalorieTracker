@@ -1,0 +1,23 @@
+@{
+    var current = ViewContext.RouteData.Values["controller"]?.ToString();
+    var links = new[]
+    {
+        ("Dashboard", "Dashboard", "bi-grid-1x2"),
+        ("FoodDiary", "Food Diary", "bi-journal-text"),
+        ("FoodScanner", "AI Food Scanner", "bi-camera"),
+        ("NutritionGoals", "Nutrition Goals", "bi-bullseye"),
+        ("Progress", "Progress & Analytics", "bi-graph-up"),
+        ("Profile", "Profile & Settings", "bi-person-gear"),
+    };
+}
+<ul class="app-nav">
+    @foreach (var (controller, label, icon) in links)
+    {
+        var active = string.Equals(current, controller, StringComparison.OrdinalIgnoreCase);
+        <li>
+            <a asp-area="" asp-controller="@controller" asp-action="Index" class="@(active ? "active" : null)" aria-current="@(active ? "page" : null)">
+                <i class="bi @icon" aria-hidden="true"></i>@label
+            </a>
+        </li>
+    }
+</ul>

@@ -1,0 +1,173 @@
+@model AddFoodViewModel
+@{
+    ViewData["Title"] = "Add food";
+    var d = Model.Date.ToString("yyyy-MM-dd");
+    string TabClass(string t) => Model.Tab == t ? "nav-link active" : "nav-link";
+    string PaneClass(string t) => Model.Tab == t ? "tab-pane fade show active" : "tab-pane fade";
+}
+@functions {
+    // Each form gets its own idempotency key so one double-click can't log twice, while different foods still can be added.
+    Microsoft.AspNetCore.Html.IHtmlContent Hidden() => Html.Raw(
+        $"<input type=\"hidden\" name=\"Date\" value=\"{Model.Date:yyyy-MM-dd}\" /><input type=\"hidden\" name=\"MealType\" value=\"{Model.MealType}\" /><input type=\"hidden\" name=\"ClientRequestId\" value=\"{Guid.NewGuid()}\" />");
+}
+
+<div class="page-header">
+    <div>
+        <h1>Add food</h1>
+        <p class="subtitle">to @Model.MealType.ToString().ToLowerInvariant() · @Model.Date.ToString("ddd, MMM d")</p>
+    </div>
+    <a class="btn btn-soft" asp-action="Index" asp-route-date="@d"><i class="bi bi-arrow-left me-1"></i>Back to diary</a>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="Meal">
+    @foreach (var m in Enum.GetValues<MealType>())
+    {
+        <a class="btn btn-sm @(m == Model.MealType ? "btn-primary" : "btn-soft")" asp-route-date="@d" asp-route-meal="@m" asp-route-q="@Model.Query" asp-route-tab="@Model.Tab" aria-current="@(m == Model.MealType ? "true" : null)">@m</a>
+    }
+    <a class="btn btn-sm btn-outline-primary ms-auto" asp-controller="FoodScanner" asp-action="Index" asp-route-date="@d" asp-route-meal="@Model.MealType"><i class="bi bi-camera me-1"></i>Scan a photo instead</a>
+</div>
+
+<ul class="nav nav-pills mb-3 gap-1" role="tablist">
+    <li class="nav-item" role="presentation"><button class="@TabClass("search")" data-bs-toggle="pill" data-bs-target="#tab-search" type="button" role="tab"><i class="bi bi-search me-1"></i>Search</button></li>
+    <li class="nav-item" role="presentation"><button class="@TabClass("recent")" data-bs-toggle="pill" data-bs-target="#tab-recent" type="button" role="tab"><i class="bi bi-clock-history me-1"></i>Recent</button></li>
+    <li class="nav-item" role="presentation"><button class="@TabClass("saved")" data-bs-toggle="pill" data-bs-target="#tab-saved" type="button" role="tab"><i class="bi bi-collection me-1"></i>Saved meals</button></li>
+    <li class="nav-item" role="presentation"><button class="@TabClass("manual")" data-bs-toggle="pill" data-bs-target="#tab-manual" type="button" role="tab"><i class="bi bi-pencil-square me-1"></i>Manual entry</button></li>
+</ul>
+
+<div class="tab-content">
+    <div class="@PaneClass("search")" id="tab-search" role="tabpanel">
+        <form method="get" class="mb-3" role="search">
+            <input type="hidden" name="date" value="@d" /><input type="hidden" name="meal" value="@Model.MealType" />
+            <div class="input-group">
+                <label class="visually-hidden" for="q">Search foods</label>
+                <input id="q" name="q" value="@Model.Query" class="form-control form-control-lg" placeholder="Search your foods@(Model.UsdaConfigured ? " and the USDA database" : "")…" autofocus />
+                <button class="btn btn-primary px-4" type="submit">Search</button>
+            </div>
+            @if (!Model.UsdaConfigured)
+            {
+                <div class="form-text">USDA FoodData Central search is off. Set <code>USDA_API_KEY</code> to enable it (see README). Your own foods and manual entry work without it.</div>
+            }
+        </form>
+
+        <div class="card mb-3">
+            <div class="card-header">@(string.IsNullOrEmpty(Model.Query) ? "My foods" : $"My foods matching \"{Model.Query}\"")</div>
+            @if (Model.MyFoods.Count == 0)
+            {
+                <div class="empty-state"><i class="bi bi-bookmark"></i>No saved foods@(string.IsNullOrEmpty(Model.Query) ? " yet. Use manual entry and tick \"save as custom food\", or add one from USDA search." : " match.")</div>
+            }
+            @foreach (var f in Model.MyFoods)
+            {
+                <form method="post" asp-action="AddFromFood" class="food-row flex-wrap">
+                    @Hidden()
+                    <input type="hidden" name="FoodId" value="@f.Id" />
+                    <div class="min-w-0 flex-grow-1">
+                        <div class="food-name">@if (f.IsFavorite) { <i class="bi bi-star-fill text-warning me-1" aria-label="Favorite"></i> }@f.Name @if (f.Brand is not null) { <span class="text-muted fw-normal">· @f.Brand</span> }</div>
+                        <div class="food-meta">Per @f.ServingDescription@(f.ServingWeightGrams is { } g ? $" ({g:0.#} g)" : ""): @f.Calories.ToString("0") kcal · P @f.ProteinGrams.ToString("0.#") · C @f.CarbohydratesGrams.ToString("0.#") · F @f.FatGrams.ToString("0.#")</div>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                        <label class="visually-hidden" for="qty-@f.Id">Servings</label>
+                        <input id="qty-@f.Id" name="Quantity" type="number" step="0.25" min="0.01" max="100" value="1" class="form-control form-control-sm" style="width: 80px" />
+                        <span class="small text-muted">serving(s)</span>
+                        <button class="btn btn-sm btn-primary" type="submit" data-once>Add</button>
+                    </div>
+                </form>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(Model.Query) && Model.UsdaConfigured)
+        {
+            <div class="card">
+                <div class="card-header d-flex justify-content-between"><span>USDA FoodData Central</span><span class="small text-muted fw-normal">values per 100 g</span></div>
+                @if (Model.UsdaError is not null)
+                {
+                    <div class="alert alert-warning m-3">@Model.UsdaError</div>
+                }
+                else if (Model.UsdaResults.Count == 0)
+                {
+                    <div class="empty-state"><i class="bi bi-search"></i>No USDA results. Try a simpler term (e.g. "chicken breast cooked").</div>
+                }
+                @foreach (var u in Model.UsdaResults)
+                {
+                    <form method="post" asp-action="AddUsda" class="food-row flex-wrap">
+                        @Hidden()
+                        <input type="hidden" name="FdcId" value="@u.FdcId" />
+                        <div class="min-w-0 flex-grow-1">
+                            <div class="food-name">@u.Description @if (u.Brand is not null) { <span class="text-muted fw-normal">· @u.Brand</span> } <span class="badge badge-src ms-1">@u.DataType</span></div>
+                            <div class="food-meta">@u.Calories.ToString("0") kcal · P @u.ProteinGrams.ToString("0.#") · C @u.CarbohydratesGrams.ToString("0.#") · F @u.FatGrams.ToString("0.#") per 100 g</div>
+                        </div>
+                        <div class="d-flex gap-2 align-items-center">
+                            <label class="visually-hidden" for="g-@u.FdcId">Grams</label>
+                            <input id="g-@u.FdcId" name="Grams" type="number" step="1" min="1" max="5000" value="100" class="form-control form-control-sm" style="width: 90px" />
+                            <span class="small text-muted">g</span>
+                            <button class="btn btn-sm btn-primary" type="submit" data-once>Add</button>
+                        </div>
+                    </form>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="@PaneClass("recent")" id="tab-recent" role="tabpanel">
+        <div class="card">
+            @if (Model.RecentItems.Count == 0) { <div class="empty-state"><i class="bi bi-clock-history"></i>Foods you log will show up here for quick re-adding.</div> }
+            @foreach (var i in Model.RecentItems)
+            {
+                <form method="post" asp-action="AddRecent" class="food-row">
+                    @Hidden()
+                    <input type="hidden" name="DiaryItemId" value="@i.Id" />
+                    <div class="min-w-0">
+                        <div class="food-name">@i.FoodNameSnapshot @if (i.IsAiEstimated) { <span class="badge badge-ai">AI</span> }</div>
+                        <div class="food-meta">@i.PortionDescription · P @i.ProteinGrams.ToString("0.#") · C @i.CarbohydratesGrams.ToString("0.#") · F @i.FatGrams.ToString("0.#")</div>
+                    </div>
+                    <div class="food-kcal tabular">@i.Calories.ToString("0") kcal</div>
+                    <button class="btn btn-sm btn-primary" type="submit" data-once aria-label="Add @i.FoodNameSnapshot">Add</button>
+                </form>
+            }
+        </div>
+    </div>
+
+    <div class="@PaneClass("saved")" id="tab-saved" role="tabpanel">
+        <div class="card">
+            @if (Model.SavedMeals.Count == 0) { <div class="empty-state"><i class="bi bi-collection"></i>No saved meals yet. In the diary, open a logged meal and choose "Save as meal".</div> }
+            @foreach (var s in Model.SavedMeals)
+            {
+                var totals = new NutrientTotals(s.Items.Sum(i => i.Calories), s.Items.Sum(i => i.ProteinGrams), s.Items.Sum(i => i.CarbohydratesGrams), s.Items.Sum(i => i.FatGrams));
+                <form method="post" asp-action="AddSavedMeal" class="food-row flex-wrap">
+                    @Hidden()
+                    <input type="hidden" name="SavedMealId" value="@s.Id" />
+                    <div class="min-w-0 flex-grow-1">
+                        <div class="food-name">@s.Name</div>
+                        <div class="food-meta text-truncate">@string.Join(", ", s.Items.Select(i => i.FoodNameSnapshot))</div>
+                    </div>
+                    <partial name="_NutrientChips" model="totals" />
+                    <button class="btn btn-sm btn-primary" type="submit" data-once>Add meal</button>
+                </form>
+            }
+        </div>
+    </div>
+
+    <div class="@PaneClass("manual")" id="tab-manual" role="tabpanel">
+        <div class="card"><div class="card-body">
+            <form method="post" asp-action="AddManual" novalidate>
+                <div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
+                <input type="hidden" asp-for="Manual.Date" value="@d" />
+                <input type="hidden" asp-for="Manual.MealType" value="@Model.MealType" />
+                <input type="hidden" asp-for="Manual.ClientRequestId" value="@Model.ClientRequestId" />
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6"><label asp-for="Manual.Name" class="form-label">Food name</label><input asp-for="Manual.Name" class="form-control" /><span asp-validation-for="Manual.Name" class="text-danger small"></span></div>
+                    <div class="col-6 col-md-3"><label asp-for="Manual.PortionDescription" class="form-label"></label><input asp-for="Manual.PortionDescription" class="form-control" placeholder="e.g. 1 bowl" /></div>
+                    <div class="col-6 col-md-3"><label asp-for="Manual.WeightGrams" class="form-label"></label><input asp-for="Manual.WeightGrams" type="number" step="any" class="form-control" /><span asp-validation-for="Manual.WeightGrams" class="text-danger small"></span></div>
+                </div>
+                <partial name="_NutrientInputs" for="Manual.Nutrients" />
+                <div class="form-check mt-3">
+                    <input asp-for="Manual.SaveAsCustomFood" class="form-check-input" />
+                    <label asp-for="Manual.SaveAsCustomFood" class="form-check-label"></label>
+                </div>
+                <p class="small text-muted mt-2 mb-3" id="macroCheck" aria-live="polite"></p>
+                <button type="submit" class="btn btn-primary" data-once><i class="bi bi-plus-lg me-1"></i>Add to @Model.MealType.ToString().ToLowerInvariant()</button>
+            </form>
+        </div></div>
+    </div>
+</div>
+
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

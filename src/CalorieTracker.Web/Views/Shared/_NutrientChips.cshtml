@@ -1,0 +1,7 @@
+@model CalorieTracker.Web.Services.NutrientTotals
+<span class="d-inline-flex flex-wrap gap-1">
+    <span class="n-chip n-cal tabular">@Model.Calories.ToString("#,0") kcal</span>
+    <span class="n-chip n-protein tabular" title="Protein">P @Model.ProteinGrams.ToString("0.#") g</span>
+    <span class="n-chip n-carbs tabular" title="Carbohydrates">C @Model.CarbohydratesGrams.ToString("0.#") g</span>
+    <span class="n-chip n-fat tabular" title="Fat">F @Model.FatGrams.ToString("0.#") g</span>
+</span>

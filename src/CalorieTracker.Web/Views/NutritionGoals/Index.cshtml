@@ -1,0 +1,189 @@
+@model NutritionGoalsViewModel
+@{
+    ViewData["Title"] = "Nutrition Goals";
+    var plan = Model.Plan;
+    var unit = Model.UserPlan.Profile.PreferredWeightUnit;
+    string Wk(decimal kg) => unit == WeightUnit.Kg ? $"{kg:+0.00;-0.00;0} kg" : $"{kg / NutritionCalculatorService.KgPerLb:+0.00;-0.00;0} lb";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Nutrition Goals</h1>
+        <p class="subtitle">Your estimated energy needs and daily targets. Everything is calculated on the server from your profile and latest weight.</p>
+    </div>
+    <a class="btn btn-soft" asp-controller="Profile" asp-action="Index"><i class="bi bi-pencil me-1"></i>Edit profile</a>
+</div>
+
+@if (Model.UserPlan.Problem is not null)
+{
+    <div class="alert alert-warning">@Model.UserPlan.Problem <a asp-controller="Progress" asp-action="Index" asp-fragment="weight">Log weight</a></div>
+}
+
+@if (plan is not null)
+{
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3"><div class="card stat-card">
+            <div class="card-title-sm">Estimated BMR</div>
+            <div class="stat-value tabular">@plan.Bmr.ToString("#,0") <small class="fs-6 text-muted">kcal/day</small></div>
+            <div class="stat-sub">Mifflin-St Jeor, age @plan.AgeYears</div>
+        </div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card stat-card">
+            <div class="card-title-sm">Estimated TDEE (maintenance)</div>
+            <div class="stat-value tabular">@plan.Tdee.ToString("#,0") <small class="fs-6 text-muted">kcal/day</small></div>
+            <div class="stat-sub">@EnumText.Name(plan.ActivityLevel) × @plan.ActivityFactor.ToString("0.###")</div>
+        </div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card stat-card">
+            <div class="card-title-sm">Weekly maintenance</div>
+            <div class="stat-value tabular">@((plan.Tdee * 7).ToString("#,0")) <small class="fs-6 text-muted">kcal</small></div>
+            <div class="stat-sub">TDEE × 7 days</div>
+        </div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card stat-card n-cal" style="background: var(--ct-cal-soft)">
+            <div class="card-title-sm n-text">Daily calorie goal</div>
+            <div class="stat-value tabular n-text">@plan.Goal.DailyCalorieGoal.ToString("#,0") <small class="fs-6">kcal</small></div>
+            <div class="stat-sub">
+                @if (plan.Goal.AdjustmentCalories < -0.5m) { <text>@((-plan.Goal.AdjustmentCalories).ToString("#,0")) kcal deficit (@((-plan.Goal.AdjustmentPercentage).ToString("0.#"))%)</text> }
+                else if (plan.Goal.AdjustmentCalories > 0.5m) { <text>@plan.Goal.AdjustmentCalories.ToString("#,0") kcal surplus (@plan.Goal.AdjustmentPercentage.ToString("0.#")%)</text> }
+                else { <text>Maintenance</text> }
+            </div>
+        </div></div>
+    </div>
+
+    @foreach (var w in plan.Goal.Warnings)
+    {
+        <div class="alert alert-warning d-flex gap-2"><i class="bi bi-exclamation-triangle-fill mt-1"></i><div>@w</div></div>
+    }
+
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Daily macro targets</div>
+                <div class="card-body">
+                    @if (plan.Macros.Targets is { } t)
+                    {
+                        <div class="row g-3 text-center mb-3">
+                            <div class="col-4 n-protein"><div class="n-chip w-100 justify-content-center py-2 fs-6">@t.ProteinGrams g</div><div class="small text-muted mt-1">Protein · @(t.ProteinGrams * 4) kcal</div></div>
+                            <div class="col-4 n-carbs"><div class="n-chip w-100 justify-content-center py-2 fs-6">@t.CarbohydratesGrams g</div><div class="small text-muted mt-1">Carbs · @(t.CarbohydratesGrams * 4) kcal</div></div>
+                            <div class="col-4 n-fat"><div class="n-chip w-100 justify-content-center py-2 fs-6">@t.FatGrams g</div><div class="small text-muted mt-1">Fat · @(t.FatGrams * 9) kcal</div></div>
+                        </div>
+                        <p class="small mb-1">Macros add up to <strong class="tabular">@t.MacroCalories.ToString("#,0") kcal</strong>, against a goal of <span class="tabular">@t.Calories.ToString("#,0") kcal</span>.</p>
+                        @if (t.RoundingDifference != 0)
+                        {
+                            <p class="small text-muted mb-0">The @Math.Abs(t.RoundingDifference) kcal difference comes from rounding each target to whole grams.</p>
+                        }
+                    }
+                    else
+                    {
+                        foreach (var e in plan.Macros.Errors) { <div class="alert alert-danger small">@e</div> }
+                    }
+                    <hr />
+                    <p class="small text-muted mb-0">Order of calculation: protein from body weight (@Model.Input.ProteinGramsPerKg g/kg × @(Model.UserPlan.LatestWeight?.WeightKg.ToString("0.#")) kg), then fat as a share of calories, and carbohydrates fill the rest. Protein: 4 kcal/g · Carbs: 4 kcal/g · Fat: 9 kcal/g.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Fat-loss pace options</div>
+                <div class="table-responsive">
+                    <table class="table mb-0">
+                        <thead><tr><th>Deficit</th><th class="text-end">Daily kcal</th><th class="text-end">Deficit/day</th><th class="text-end">≈ per week*</th></tr></thead>
+                        <tbody class="tabular">
+                            @foreach (var o in Model.DeficitOptions)
+                            {
+                                <tr class="@(Model.Input.PrimaryGoal is PrimaryGoal.LoseFat or PrimaryGoal.Recomposition && Model.Input.CalorieTargetMode == CalorieTargetMode.Percentage && o.Percentage == Model.Input.DeficitPercentage ? "table-success" : null)">
+                                    <td>@o.Percentage% @(o.Percentage >= 25 ? "(aggressive)" : null)</td>
+                                    <td class="text-end">@o.Calories.ToString("#,0")</td>
+                                    <td class="text-end">@o.DailyDeficit.ToString("#,0")</td>
+                                    <td class="text-end">@Wk(o.WeeklyChangeKg)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-body pt-2">
+                    <p class="disclaimer mb-0">*Theoretical estimate using ~7,700 kcal per kg of body weight. Real results vary with water, adherence and metabolism, so they won't match exactly. Smaller deficits are easier to sustain and help keep muscle. Your current setting estimates <strong>@Wk(plan.Goal.EstimatedWeeklyWeightChangeKg)</strong> per week.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="card-header">Adjust goal settings</div>
+    <div class="card-body">
+        <form method="post" novalidate>
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label asp-for="Input.PrimaryGoal" class="form-label"></label>
+                    <select asp-for="Input.PrimaryGoal" asp-items="Html.GetEnumSelectList<PrimaryGoal>()" class="form-select"></select>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Input.CalorieTargetMode" class="form-label"></label>
+                    <select asp-for="Input.CalorieTargetMode" asp-items="Html.GetEnumSelectList<CalorieTargetMode>()" class="form-select" id="modeSelect"></select>
+                </div>
+                <div class="col-md-4" data-mode="Manual">
+                    <label asp-for="Input.ManualCalories" class="form-label"></label>
+                    <input asp-for="Input.ManualCalories" type="number" class="form-control" />
+                    <span asp-validation-for="Input.ManualCalories" class="text-danger small"></span>
+                </div>
+                <div class="col-md-4" data-mode="Percentage">
+                    <label asp-for="Input.DeficitPercentage" class="form-label"></label>
+                    <input asp-for="Input.DeficitPercentage" type="number" step="1" class="form-control" />
+                    <div class="form-text">Fat loss / recomposition. 10–20% is a common range.</div>
+                    <span asp-validation-for="Input.DeficitPercentage" class="text-danger small"></span>
+                </div>
+                <div class="col-md-4" data-mode="Percentage">
+                    <label asp-for="Input.SurplusPercentage" class="form-label"></label>
+                    <input asp-for="Input.SurplusPercentage" type="number" step="1" class="form-control" />
+                    <div class="form-text">Muscle gain. A modest 5–10% limits fat gain.</div>
+                    <span asp-validation-for="Input.SurplusPercentage" class="text-danger small"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Input.ProteinGramsPerKg" class="form-label"></label>
+                    <input asp-for="Input.ProteinGramsPerKg" type="number" step="0.1" class="form-control" />
+                    <div class="form-text">General fitness guideline: 1.6–2.2 g/kg.</div>
+                    <span asp-validation-for="Input.ProteinGramsPerKg" class="text-danger small"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="Input.FatPercentage" class="form-label"></label>
+                    <input asp-for="Input.FatPercentage" type="number" step="1" class="form-control" />
+                    <span asp-validation-for="Input.FatPercentage" class="text-danger small"></span>
+                </div>
+            </div>
+
+            <details class="mt-4" @(Model.Input.CustomProteinGrams is not null ? "open" : null)>
+                <summary class="fw-semibold">Advanced: set exact macro grams</summary>
+                <p class="small text-muted mt-2">Fill in all three to replace the calculated targets. They must add up to within 5% of your calorie goal. Leave all three empty to use the calculation above.</p>
+                <div class="row g-3">
+                    <div class="col-md-4 n-protein"><label asp-for="Input.CustomProteinGrams" class="form-label n-text"></label><input asp-for="Input.CustomProteinGrams" type="number" step="1" class="form-control" /><span asp-validation-for="Input.CustomProteinGrams" class="text-danger small"></span></div>
+                    <div class="col-md-4 n-carbs"><label asp-for="Input.CustomCarbohydratesGrams" class="form-label n-text"></label><input asp-for="Input.CustomCarbohydratesGrams" type="number" step="1" class="form-control" /><span asp-validation-for="Input.CustomCarbohydratesGrams" class="text-danger small"></span></div>
+                    <div class="col-md-4 n-fat"><label asp-for="Input.CustomFatGrams" class="form-label n-text"></label><input asp-for="Input.CustomFatGrams" type="number" step="1" class="form-control" /><span asp-validation-for="Input.CustomFatGrams" class="text-danger small"></span></div>
+                </div>
+            </details>
+
+            <button type="submit" class="btn btn-primary mt-4" data-once><i class="bi bi-arrow-repeat me-1"></i>Recalculate &amp; save</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">About activity levels</div>
+    <div class="table-responsive">
+        <table class="table mb-0">
+            <thead><tr><th>Level</th><th>Multiplier</th><th>What it usually means</th></tr></thead>
+            <tbody>
+                @foreach (var (level, factor) in Model.ActivityFactors)
+                {
+                    <tr class="@(level == Model.UserPlan.Profile.ActivityLevel ? "table-success" : null)">
+                        <td class="fw-semibold">@EnumText.Name(level)</td><td class="tabular">× @factor.ToString("0.###")</td><td class="small">@EnumText.Description(level)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="card-body pt-2">
+        <p class="disclaimer mb-0">BMR and TDEE come from population formulas and can differ from your real needs by 10% or more. Use your weight trend over 2–4 weeks to adjust. These targets are general fitness guidance, not medical advice. If you have a medical condition, are pregnant, or need individual guidance, talk to a qualified healthcare professional.</p>
+    </div>
+</div>
+
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

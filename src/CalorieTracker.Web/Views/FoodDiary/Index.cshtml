@@ -1,0 +1,133 @@
+@model FoodDiaryViewModel
+@{
+    ViewData["Title"] = "Food Diary";
+    var d = Model.Date.ToString("yyyy-MM-dd");
+    var label = Model.Date == Model.Today ? "Today" : Model.Date == Model.Today.AddDays(-1) ? "Yesterday" : Model.Date.ToString("ddd, MMM d");
+}
+
+<div class="page-header">
+    <div>
+        <h1>Food Diary</h1>
+        <p class="subtitle">@Model.Date.ToString("dddd, MMMM d, yyyy")</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+        <nav class="day-nav" aria-label="Change day">
+            <a asp-action="Index" asp-route-date="@Model.Date.AddDays(-1).ToString("yyyy-MM-dd")" aria-label="Previous day"><i class="bi bi-chevron-left"></i></a>
+            <span aria-live="polite">@label</span>
+            <a asp-action="Index" asp-route-date="@Model.Date.AddDays(1).ToString("yyyy-MM-dd")" aria-label="Next day"><i class="bi bi-chevron-right"></i></a>
+        </nav>
+        <form method="get" asp-action="Index" class="d-flex gap-1">
+            <label for="jumpDate" class="visually-hidden">Go to date</label>
+            <input id="jumpDate" type="date" name="date" value="@d" class="form-control form-control-sm" onchange="this.form.submit()" />
+        </form>
+        @if (Model.Date != Model.Today) { <a class="btn btn-sm btn-soft" asp-action="Index">Today</a> }
+        <a class="btn btn-sm btn-outline-primary" asp-action="Foods"><i class="bi bi-bookmark me-1"></i>My foods &amp; meals</a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <div class="card-title-sm">Day total</div>
+                <partial name="_NutrientChips" model="Model.DayTotals" />
+            </div>
+            @if (Model.Targets is { } t)
+            {
+                <div class="flex-grow-1 d-grid gap-2" style="max-width: 520px; min-width: 260px">
+                    <partial name="_MacroBar" model='new MacroBarModel("Calories", "n-cal", new RemainingAmount(t.Calories, Model.DayTotals.Calories), "kcal")' />
+                    <partial name="_MacroBar" model='new MacroBarModel("Protein", "n-protein", new RemainingAmount(t.ProteinGrams, Model.DayTotals.ProteinGrams), "g")' />
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@foreach (var meal in Model.Meals)
+{
+    <section class="card meal-card mb-3" aria-labelledby="meal-@meal.MealType">
+        <div class="card-header">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <h2 class="h6 mb-0" id="meal-@meal.MealType">@meal.MealType</h2>
+                @if (meal.Entries.Count > 0) { <partial name="_NutrientChips" model="meal.Totals" /> }
+            </div>
+            <div class="d-flex gap-1">
+                <a class="btn btn-sm btn-soft" asp-action="Add" asp-route-date="@d" asp-route-meal="@meal.MealType"><i class="bi bi-plus-lg me-1"></i>Add food</a>
+                <a class="btn btn-sm btn-soft" asp-controller="FoodScanner" asp-action="Index" asp-route-date="@d" asp-route-meal="@meal.MealType" aria-label="Scan a photo for @meal.MealType"><i class="bi bi-camera"></i></a>
+            </div>
+        </div>
+        @if (meal.Entries.Count == 0)
+        {
+            <div class="px-4 py-3 text-muted small">Nothing logged.</div>
+        }
+        @foreach (var entry in meal.Entries)
+        {
+            <div class="border-top">
+                @if (entry.Items.Count > 1 || entry.Notes is not null)
+                {
+                    <div class="px-4 pt-2 small text-muted d-flex justify-content-between">
+                        <span>@(entry.Notes ?? $"Meal with {entry.Items.Count} items")</span>
+                    </div>
+                }
+                @foreach (var item in entry.Items)
+                {
+                    <div class="food-row">
+                        <div class="min-w-0">
+                            <div class="food-name">
+                                @item.FoodNameSnapshot
+                                @if (item.IsAiEstimated) { <span class="badge badge-ai ms-1" title="AI estimate@(item.AiConfidence is { } c ? $", confidence {c:P0}" : "")">AI</span> }
+                                else if (item.NutritionSource == NutritionSource.Usda) { <span class="badge badge-src ms-1">USDA</span> }
+                            </div>
+                            <div class="food-meta">
+                                @item.PortionDescription@(item.WeightGrams is { } g ? $" · {g:0} g" : "")
+                                · P @item.ProteinGrams.ToString("0.#") · C @item.CarbohydratesGrams.ToString("0.#") · F @item.FatGrams.ToString("0.#")
+                            </div>
+                        </div>
+                        <div class="food-kcal tabular fw-semibold">@item.Calories.ToString("#,0") <span class="text-muted fw-normal small">kcal</span></div>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-light" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for @item.FoodNameSnapshot"><i class="bi bi-three-dots-vertical"></i></button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" asp-action="EditItem" asp-route-id="@item.Id"><i class="bi bi-pencil me-2"></i>Edit / adjust serving</a></li>
+                                <li>
+                                    <form method="post" asp-action="DeleteItem" asp-route-id="@item.Id" data-confirm="Remove @item.FoodNameSnapshot?">
+                                        <button class="dropdown-item text-danger" type="submit"><i class="bi bi-trash me-2"></i>Remove</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                }
+                <div class="px-4 pb-3 pt-1 d-flex flex-wrap gap-2">
+                    <button class="btn btn-sm btn-link px-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#tools-@entry.Id" aria-expanded="false" aria-controls="tools-@entry.Id">
+                        <i class="bi bi-copy me-1"></i>Copy or save this meal
+                    </button>
+                    <form method="post" asp-action="DeleteEntry" asp-route-id="@entry.Id" class="ms-auto" data-confirm="Remove this whole meal (@entry.Items.Count items)?">
+                        <button class="btn btn-sm btn-link text-danger text-decoration-none px-0" type="submit"><i class="bi bi-trash me-1"></i>Remove meal</button>
+                    </form>
+                    <div class="collapse w-100" id="tools-@entry.Id">
+                        <div class="row g-2 mt-1">
+                            <div class="col-md-7">
+                                <form method="post" asp-action="CopyEntry" class="d-flex flex-wrap gap-2 align-items-end">
+                                    <input type="hidden" name="EntryId" value="@entry.Id" />
+                                    <div><label class="form-label small mb-0" for="copy-date-@entry.Id">Copy to date</label>
+                                        <input class="form-control form-control-sm" type="date" id="copy-date-@entry.Id" name="TargetDate" value="@Model.Today.ToString("yyyy-MM-dd")" required /></div>
+                                    <div><label class="form-label small mb-0" for="copy-meal-@entry.Id">Meal</label>
+                                        <select class="form-select form-select-sm" id="copy-meal-@entry.Id" name="TargetMealType" asp-items="Html.GetEnumSelectList<MealType>()"></select></div>
+                                    <button class="btn btn-sm btn-soft" type="submit" data-once>Copy</button>
+                                </form>
+                            </div>
+                            <div class="col-md-5">
+                                <form method="post" asp-action="SaveAsMeal" class="d-flex gap-2 align-items-end">
+                                    <input type="hidden" name="EntryId" value="@entry.Id" />
+                                    <div class="flex-grow-1"><label class="form-label small mb-0" for="save-name-@entry.Id">Save as meal</label>
+                                        <input class="form-control form-control-sm" id="save-name-@entry.Id" name="Name" maxlength="200" placeholder="e.g. Usual breakfast" required /></div>
+                                    <button class="btn btn-sm btn-soft" type="submit" data-once>Save</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </section>
+}

@@ -1,0 +1,25 @@
+@model FoodInput
+@{ ViewData["Title"] = Model.Id is null ? "New custom food" : "Edit food"; }
+<div class="mx-auto" style="max-width: 760px">
+    <div class="page-header">
+        <div><h1>@ViewData["Title"]</h1><p class="subtitle">Nutrition values are per one serving as described below.</p></div>
+        <a class="btn btn-soft" asp-action="Foods"><i class="bi bi-arrow-left me-1"></i>Back</a>
+    </div>
+    <div class="card"><div class="card-body">
+        <form method="post" novalidate>
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
+            <input type="hidden" asp-for="Id" />
+            <div class="row g-3 mb-3">
+                <div class="col-md-6"><label asp-for="Name" class="form-label"></label><input asp-for="Name" class="form-control" /><span asp-validation-for="Name" class="text-danger small"></span></div>
+                <div class="col-md-6"><label asp-for="Brand" class="form-label">Brand (optional)</label><input asp-for="Brand" class="form-control" /></div>
+                <div class="col-md-6"><label asp-for="ServingDescription" class="form-label"></label><input asp-for="ServingDescription" class="form-control" placeholder="e.g. 1 cup, 1 bar, 100 g" /><span asp-validation-for="ServingDescription" class="text-danger small"></span></div>
+                <div class="col-md-3"><label asp-for="ServingWeightGrams" class="form-label"></label><input asp-for="ServingWeightGrams" type="number" step="any" class="form-control" /><span asp-validation-for="ServingWeightGrams" class="text-danger small"></span></div>
+                <div class="col-md-3"><label asp-for="SodiumMilligrams" class="form-label"></label><input asp-for="SodiumMilligrams" type="number" step="any" class="form-control" /></div>
+            </div>
+            <partial name="_NutrientInputs" for="Nutrients" />
+            <div class="form-check mt-3"><input asp-for="IsFavorite" class="form-check-input" /><label asp-for="IsFavorite" class="form-check-label"></label></div>
+            <button type="submit" class="btn btn-primary mt-4" data-once>Save food</button>
+        </form>
+    </div></div>
+</div>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

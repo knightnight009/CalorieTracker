@@ -1,0 +1,72 @@
+@model List<Food>
+@{
+    ViewData["Title"] = "My foods & meals";
+    var savedMeals = (List<SavedMeal>)ViewData["SavedMeals"]!;
+}
+<div class="page-header">
+    <div>
+        <h1>My foods &amp; meals</h1>
+        <p class="subtitle">Custom foods, foods saved from USDA, and saved meals. Editing them never changes past diary entries.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-soft" asp-action="Index"><i class="bi bi-arrow-left me-1"></i>Diary</a>
+        <a class="btn btn-primary" asp-action="FoodForm"><i class="bi bi-plus-lg me-1"></i>New custom food</a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">Foods</div>
+    @if (Model.Count == 0) { <div class="empty-state"><i class="bi bi-bookmark"></i>No foods yet.</div> }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead><tr><th>Food</th><th>Serving</th><th class="text-end">kcal</th><th class="text-end">P / C / F (g)</th><th>Source</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody class="tabular">
+                    @foreach (var f in Model)
+                    {
+                        <tr>
+                            <td class="fw-semibold">
+                                <form method="post" asp-action="ToggleFavorite" asp-route-id="@f.Id" class="d-inline">
+                                    <button class="btn btn-sm btn-link p-0 me-1" type="submit" aria-label="@(f.IsFavorite ? "Remove from favorites" : "Mark as favorite")" aria-pressed="@(f.IsFavorite ? "true" : "false")">
+                                        <i class="bi @(f.IsFavorite ? "bi-star-fill text-warning" : "bi-star text-muted")"></i>
+                                    </button>
+                                </form>
+                                @f.Name @if (f.Brand is not null) { <span class="text-muted fw-normal">· @f.Brand</span> }
+                            </td>
+                            <td class="small">@f.ServingDescription@(f.ServingWeightGrams is { } g ? $" ({g:0.#} g)" : "")</td>
+                            <td class="text-end">@f.Calories.ToString("0")</td>
+                            <td class="text-end">@f.ProteinGrams.ToString("0.#") / @f.CarbohydratesGrams.ToString("0.#") / @f.FatGrams.ToString("0.#")</td>
+                            <td><span class="badge badge-src">@EnumText.Name(f.DataSource)</span></td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-sm btn-light" asp-action="FoodForm" asp-route-id="@f.Id" aria-label="Edit @f.Name"><i class="bi bi-pencil"></i></a>
+                                <form method="post" asp-action="DeleteFood" asp-route-id="@f.Id" class="d-inline" data-confirm="Delete @f.Name? Past diary entries are kept.">
+                                    <button class="btn btn-sm btn-light text-danger" type="submit" aria-label="Delete @f.Name"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="card">
+    <div class="card-header">Saved meals</div>
+    @if (savedMeals.Count == 0) { <div class="empty-state"><i class="bi bi-collection"></i>Save a logged meal from the diary to reuse it in one click.</div> }
+    @foreach (var s in savedMeals)
+    {
+        var totals = new NutrientTotals(s.Items.Sum(i => i.Calories), s.Items.Sum(i => i.ProteinGrams), s.Items.Sum(i => i.CarbohydratesGrams), s.Items.Sum(i => i.FatGrams));
+        <div class="food-row flex-wrap">
+            <div class="min-w-0 flex-grow-1">
+                <div class="food-name">@s.Name</div>
+                <div class="food-meta">@string.Join(", ", s.Items.Select(i => i.FoodNameSnapshot))</div>
+            </div>
+            <partial name="_NutrientChips" model="totals" />
+            <form method="post" asp-action="DeleteSavedMeal" asp-route-id="@s.Id" data-confirm="Delete saved meal @s.Name?">
+                <button class="btn btn-sm btn-light text-danger" type="submit" aria-label="Delete saved meal @s.Name"><i class="bi bi-trash"></i></button>
+            </form>
+        </div>
+    }
+</div>

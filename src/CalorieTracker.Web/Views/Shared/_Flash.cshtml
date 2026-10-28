@@ -1,0 +1,9 @@
+@if (TempData["FlashMessage"] is string message)
+{
+    var kind = TempData["FlashKind"] as string ?? "success";
+    <div class="alert alert-@kind alert-dismissible fade show d-flex align-items-start gap-2" role="@(kind == "success" ? "status" : "alert")">
+        <i class="bi @(kind == "success" ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") mt-1" aria-hidden="true"></i>
+        <div>@message</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
+    </div>
+}

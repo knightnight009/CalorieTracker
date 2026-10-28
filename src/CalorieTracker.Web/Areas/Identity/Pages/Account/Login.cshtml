@@ -1,0 +1,35 @@
+@page
+@model CalorieTracker.Web.Areas.Identity.Pages.Account.LoginModel
+@{ ViewData["Title"] = "Log in"; }
+
+<div class="auth-wrap">
+    <div class="card"><div class="card-body p-4">
+        <h1 class="h4 mb-1">Welcome back</h1>
+        <p class="text-muted mb-4">Log in to your nutrition tracker.</p>
+        <form id="account" method="post" novalidate>
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+            <div class="mb-3">
+                <label asp-for="Input.Email" class="form-label">Email</label>
+                <input asp-for="Input.Email" class="form-control" autocomplete="username" aria-required="true" />
+                <span asp-validation-for="Input.Email" class="text-danger small"></span>
+            </div>
+            <div class="mb-3">
+                <label asp-for="Input.Password" class="form-label">Password</label>
+                <input asp-for="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" />
+                <span asp-validation-for="Input.Password" class="text-danger small"></span>
+            </div>
+            <div class="form-check mb-3">
+                <input asp-for="Input.RememberMe" class="form-check-input" />
+                <label asp-for="Input.RememberMe" class="form-check-label"></label>
+            </div>
+            <button id="login-submit" type="submit" class="btn btn-primary w-100 btn-lg">Log in</button>
+        </form>
+        <div class="d-flex flex-column gap-1 mt-3 small">
+            <a asp-page="./ForgotPassword">Forgot your password?</a>
+            <a asp-page="./Register" asp-route-returnUrl="@Model.ReturnUrl">Create an account</a>
+            <a asp-page="./ResendEmailConfirmation">Resend email confirmation</a>
+        </div>
+    </div></div>
+</div>
+
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

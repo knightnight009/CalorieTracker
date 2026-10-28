@@ -1,0 +1,194 @@
+@model ProfileSetupViewModel
+@{
+    var wizard = Model.IsNew;
+    string StepClass(int i) => wizard ? (i == 1 ? "wizard-step active" : "wizard-step") : "mb-4";
+}
+<form method="post" id="profileForm" novalidate data-wizard="@(wizard ? "true" : "false")">
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+    <input type="hidden" asp-for="TimeZoneId" id="TimeZoneId" />
+
+    @if (wizard)
+    {
+        <ol class="wizard-steps" aria-label="Setup steps">
+            <li class="active" data-step-label="1">1 · About you</li>
+            <li data-step-label="2">2 · Activity</li>
+            <li data-step-label="3">3 · Goal</li>
+            <li data-step-label="4">4 · Nutrition</li>
+        </ol>
+    }
+
+    <section class="@StepClass(1)" data-step="1">
+        <div class="card"><div class="card-header">About you</div><div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label asp-for="SexForBmrCalculation" class="form-label"></label>
+                    <select asp-for="SexForBmrCalculation" asp-items="Html.GetEnumSelectList<BiologicalSex>()" class="form-select"></select>
+                    <div class="form-text">The Mifflin-St Jeor formula has separate male and female versions. Pick the one that fits your physiology best.</div>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="DateOfBirth" class="form-label"></label>
+                    <input asp-for="DateOfBirth" type="date" class="form-control" required />
+                    <span asp-validation-for="DateOfBirth" class="text-danger small"></span>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="PreferredWeightUnit" class="form-label"></label>
+                    <select asp-for="PreferredWeightUnit" asp-items="Html.GetEnumSelectList<WeightUnit>()" class="form-select"></select>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="CurrentWeight" class="form-label"></label>
+                    <div class="input-group">
+                        <input asp-for="CurrentWeight" type="number" step="0.1" inputmode="decimal" class="form-control" required />
+                        <span class="input-group-text" data-weight-unit>@(Model.PreferredWeightUnit == WeightUnit.Kg ? "kg" : "lb")</span>
+                    </div>
+                    <span asp-validation-for="CurrentWeight" class="text-danger small"></span>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="HeightUnit" class="form-label"></label>
+                    <select asp-for="HeightUnit" asp-items="Html.GetEnumSelectList<HeightUnit>()" class="form-select" id="HeightUnit"></select>
+                </div>
+                <div class="col-md-6" data-height="Cm">
+                    <label asp-for="HeightCm" class="form-label"></label>
+                    <input asp-for="HeightCm" type="number" step="0.1" inputmode="decimal" class="form-control" />
+                    <span asp-validation-for="HeightCm" class="text-danger small"></span>
+                </div>
+                <div class="col-md-6" data-height="FtIn">
+                    <span class="form-label d-block">Height</span>
+                    <div class="input-group">
+                        <input asp-for="HeightFeet" type="number" class="form-control" aria-label="Feet" placeholder="ft" />
+                        <span class="input-group-text">ft</span>
+                        <input asp-for="HeightInches" type="number" step="0.1" class="form-control" aria-label="Inches" placeholder="in" />
+                        <span class="input-group-text">in</span>
+                    </div>
+                    <span asp-validation-for="HeightFeet" class="text-danger small"></span>
+                    <span asp-validation-for="HeightInches" class="text-danger small"></span>
+                </div>
+            </div>
+        </div></div>
+    </section>
+
+    <section class="@StepClass(2)" data-step="2">
+        <div class="card"><div class="card-header">Activity</div><div class="card-body">
+            <fieldset>
+                <legend class="form-label fs-6 fw-semibold">Overall activity level <span class="text-muted fw-normal">(this sets your TDEE multiplier)</span></legend>
+                <p class="form-text mt-0">Think about your whole week: job, steps and training together. If you're between two levels, pick the lower one; it's easier to adjust up later.</p>
+                <div class="row g-2">
+                    @foreach (var level in Enum.GetValues<ActivityLevel>())
+                    {
+                        <div class="col-md-6 col-xl-4">
+                            <input type="radio" class="btn-check" name="@Html.NameFor(m => m.ActivityLevel)" id="act-@level" value="@level" checked="@(Model.ActivityLevel == level)" />
+                            <label class="choice-card" for="act-@level">
+                                <span class="fw-semibold d-block">@EnumText.Name(level)</span>
+                                <span class="small text-muted">@EnumText.Description(level)</span>
+                            </label>
+                        </div>
+                    }
+                </div>
+            </fieldset>
+            <div class="alert alert-light border mt-3 small mb-3">
+                <i class="bi bi-info-circle me-1"></i>Workout details below are for context only. They do <strong>not</strong> add calories on top of your activity level, because that would count your exercise twice.
+            </div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label asp-for="WorkoutDaysPerWeek" class="form-label"></label>
+                    <input asp-for="WorkoutDaysPerWeek" type="number" class="form-control" />
+                    <span asp-validation-for="WorkoutDaysPerWeek" class="text-danger small"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="AverageWorkoutDurationMinutes" class="form-label"></label>
+                    <input asp-for="AverageWorkoutDurationMinutes" type="number" class="form-control" />
+                    <span asp-validation-for="AverageWorkoutDurationMinutes" class="text-danger small"></span>
+                </div>
+                <div class="col-md-4">
+                    <label asp-for="WorkoutIntensity" class="form-label"></label>
+                    <select asp-for="WorkoutIntensity" asp-items="Html.GetEnumSelectList<WorkoutIntensity>()" class="form-select"></select>
+                </div>
+            </div>
+        </div></div>
+    </section>
+
+    <section class="@StepClass(3)" data-step="3">
+        <div class="card"><div class="card-header">Goal</div><div class="card-body">
+            <fieldset class="mb-3">
+                <legend class="form-label fs-6 fw-semibold">Primary goal</legend>
+                <div class="row g-2">
+                    @foreach (var goal in Enum.GetValues<PrimaryGoal>())
+                    {
+                        <div class="col-6 col-lg-3">
+                            <input type="radio" class="btn-check" name="@Html.NameFor(m => m.PrimaryGoal)" id="goal-@goal" value="@goal" checked="@(Model.PrimaryGoal == goal)" />
+                            <label class="choice-card text-center fw-semibold" for="goal-@goal">@EnumText.Name(goal)</label>
+                        </div>
+                    }
+                </div>
+            </fieldset>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label asp-for="PreferredCalorieDeficitPercentage" class="form-label"></label>
+                    <select asp-for="PreferredCalorieDeficitPercentage" class="form-select">
+                        <option value="10">10%: gradual, easiest to sustain</option>
+                        <option value="15">15%: moderate (recommended start)</option>
+                        <option value="20">20%: faster, harder to sustain</option>
+                        <option value="25">25%: aggressive, review carefully</option>
+                    </select>
+                    <div class="form-text">Used for fat loss and recomposition. Slower loss generally makes it easier to keep muscle.</div>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="PreferredCalorieSurplusPercentage" class="form-label"></label>
+                    <select asp-for="PreferredCalorieSurplusPercentage" class="form-select">
+                        <option value="5">5%: lean gain</option>
+                        <option value="10">10%: moderate</option>
+                        <option value="15">15%: faster gain</option>
+                    </select>
+                    <div class="form-text">Used for muscle gain.</div>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="TargetWeight" class="form-label"></label>
+                    <div class="input-group">
+                        <input asp-for="TargetWeight" type="number" step="0.1" class="form-control" />
+                        <span class="input-group-text" data-weight-unit>@(Model.PreferredWeightUnit == WeightUnit.Kg ? "kg" : "lb")</span>
+                    </div>
+                    <span asp-validation-for="TargetWeight" class="text-danger small"></span>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="TargetBodyFatPercentage" class="form-label"></label>
+                    <div class="input-group">
+                        <input asp-for="TargetBodyFatPercentage" type="number" step="0.1" class="form-control" />
+                        <span class="input-group-text">%</span>
+                    </div>
+                    <span asp-validation-for="TargetBodyFatPercentage" class="text-danger small"></span>
+                </div>
+            </div>
+        </div></div>
+    </section>
+
+    <section class="@StepClass(4)" data-step="4">
+        <div class="card"><div class="card-header">Nutrition preferences</div><div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label asp-for="ProteinTargetGramsPerKg" class="form-label"></label>
+                    <input asp-for="ProteinTargetGramsPerKg" type="number" step="0.1" class="form-control" />
+                    <div class="form-text">1.6–2.2 g/kg is a common range for healthy adults who train regularly. It's a general fitness guideline, not a medical prescription.</div>
+                    <span asp-validation-for="ProteinTargetGramsPerKg" class="text-danger small"></span>
+                </div>
+                <div class="col-md-6">
+                    <label asp-for="FatTargetPercentage" class="form-label"></label>
+                    <input asp-for="FatTargetPercentage" type="number" step="1" class="form-control" />
+                    <div class="form-text">Carbohydrates fill the remaining calories. You can fine-tune everything later on the Goals page.</div>
+                    <span asp-validation-for="FatTargetPercentage" class="text-danger small"></span>
+                </div>
+            </div>
+        </div></div>
+    </section>
+
+    <div class="d-flex justify-content-between mt-3">
+        @if (wizard)
+        {
+            <button type="button" class="btn btn-outline-secondary" data-wizard-back hidden><i class="bi bi-arrow-left me-1"></i>Back</button>
+            <button type="button" class="btn btn-primary ms-auto" data-wizard-next>Next<i class="bi bi-arrow-right ms-1"></i></button>
+            <button type="submit" class="btn btn-primary ms-auto" data-wizard-submit hidden data-once>Calculate my targets</button>
+        }
+        else
+        {
+            <button type="submit" class="btn btn-primary" data-once><i class="bi bi-check-lg me-1"></i>Save profile</button>
+        }
+    </div>
+</form>

@@ -1,0 +1,12 @@
+@model ProfileSetupViewModel
+@{ ViewData["Title"] = "Set up your profile"; }
+<div class="mx-auto" style="max-width: 880px">
+    <div class="page-header">
+        <div>
+            <h1>Welcome! Let's set up your profile</h1>
+            <p class="subtitle">About two minutes. We use this to estimate your energy needs and macro targets, and you can change any of it later.</p>
+        </div>
+    </div>
+    <partial name="_ProfileForm" model="Model" />
+</div>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

@@ -1,0 +1,94 @@
+@model FoodScannerViewModel
+@{ ViewData["Title"] = "AI Food Scanner"; }
+
+<div class="page-header">
+    <div>
+        <h1>AI Food Scanner</h1>
+        <p class="subtitle">Take or upload a photo. You'll review and edit every item before anything is saved.</p>
+    </div>
+</div>
+
+@if (!Model.IsConfigured)
+{
+    <div class="card mb-4 border-warning">
+        <div class="card-body">
+            <h2 class="h5"><i class="bi bi-plug me-1 text-warning"></i>AI scanning isn't set up yet</h2>
+            <p>Everything else in the app works without it. To enable photo analysis, the server admin sets one of these:</p>
+            <ul class="mb-3">
+                <li><strong>Google Gemini (free tier):</strong> create a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>, then set <code>AI_PROVIDER=gemini</code> and <code>AI_API_KEY</code> on the server.</li>
+                <li><strong>Ollama (free, local):</strong> run a vision model such as <code>qwen2.5vl</code> and set <code>OLLAMA_BASE_URL</code> (and optionally <code>OLLAMA_MODEL</code>).</li>
+            </ul>
+            <p class="small text-muted mb-0">API keys stay on the server and are never sent to your browser. See the README for details.</p>
+            <a class="btn btn-primary mt-3" asp-controller="FoodDiary" asp-action="Add" asp-route-date="@Model.Date.ToString("yyyy-MM-dd")" asp-route-meal="@Model.MealType" asp-route-tab="manual">Add food manually</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-body">
+                    <form method="post" asp-action="Analyze" enctype="multipart/form-data" id="scanForm" novalidate>
+                        <div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+                        <div class="dropzone mb-3" id="dropzone">
+                            <input type="file" name="photo" id="photo" accept="image/jpeg,image/png,image/webp" capture="environment" aria-describedby="photoHelp" required />
+                            <div id="dropPrompt">
+                                <i class="bi bi-camera fs-1 text-muted d-block mb-2" aria-hidden="true"></i>
+                                <div class="fw-semibold">Take a photo or choose an image</div>
+                                <div class="small text-muted" id="photoHelp">JPEG, PNG or WebP, up to 8 MB. Large photos are resized in your browser before upload.</div>
+                            </div>
+                            <img id="preview" class="preview-img d-none" alt="Preview of the selected meal photo" />
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label" for="mealType">Meal</label>
+                                <select class="form-select" id="mealType" name="mealType" asp-for="MealType" asp-items="Html.GetEnumSelectList<MealType>()"></select>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label" for="date">Date</label>
+                                <input class="form-control" type="date" id="date" name="date" value="@Model.Date.ToString("yyyy-MM-dd")" required />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="context">Extra details <span class="text-muted">(optional)</span></label>
+                                <textarea class="form-control" id="context" name="context" rows="2" maxlength="1000" placeholder="e.g. cooked in 1 tbsp olive oil, 200 g rice, restaurant portion, dressing on the side">@Model.Context</textarea>
+                                <div class="form-text">Ingredients, sauces, cooking method or serving size you know about make the estimate more accurate.</div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg w-100 mt-4" id="analyzeBtn"><i class="bi bi-stars me-1"></i>Analyze photo</button>
+                        <p class="disclaimer mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Photo estimates are approximate, because portion sizes and hidden oils are hard to judge from an image. Your photo is sent to @string.Join(" / ", Model.Providers) for analysis and is not stored. Your profile details are never sent.</p>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">Recent scans</div>
+                @if (Model.RecentScans.Count == 0) { <div class="empty-state"><i class="bi bi-image"></i>Your scans will appear here.</div> }
+                <div class="list-group list-group-flush">
+                    @foreach (var s in Model.RecentScans)
+                    {
+                        <div class="list-group-item d-flex align-items-center gap-2">
+                            <div class="flex-grow-1">
+                                <a asp-action="Review" asp-route-id="@s.Id" class="fw-semibold text-decoration-none">@s.MealType · @s.DiaryDate.ToString("MMM d")</a>
+                                <div class="small text-muted">@s.CreatedAtUtc.ToString("g") UTC · @s.Provider</div>
+                            </div>
+                            <span class="badge @(s.Status == FoodScanStatus.Saved ? "text-bg-success" : "badge-src")">@(s.Status == FoodScanStatus.Saved ? "Saved" : "Not saved")</span>
+                            <form method="post" asp-action="Delete" asp-route-id="@s.Id" data-confirm="Delete this scan record?">
+                                <button class="btn btn-sm btn-light" type="submit" aria-label="Delete scan record"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="ai-overlay" id="aiOverlay" role="status" aria-live="assertive">
+    <div>
+        <div class="spinner-border mb-3" style="width: 3rem; height: 3rem" aria-hidden="true"></div>
+        <div class="fs-5 fw-semibold">Analyzing your meal…</div>
+        <div class="small opacity-75">Identifying items and estimating portions. This usually takes 5–20 seconds.</div>
+    </div>
+</div>

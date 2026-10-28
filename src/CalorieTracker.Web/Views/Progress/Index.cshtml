@@ -1,0 +1,170 @@
+@model ProgressViewModel
+@using System.Text.Json
+@{
+    ViewData["Title"] = "Progress & Analytics";
+    var u = Model.WeightUnit == WeightUnit.Kg ? "kg" : "lb";
+    var chartData = JsonSerializer.Serialize(new
+    {
+        labels = Model.Labels, calories = Model.Calories, protein = Model.Protein, calorieGoal = Model.CalorieGoal, proteinGoal = Model.ProteinGoal,
+        weightLabels = Model.WeightLabels, weights = Model.Weights, bodyFat = Model.BodyFat, unit = u,
+        macro = Model.MacroKcalShare is { } m ? new[] { Math.Round(m.Protein, 1), Math.Round(m.Carbs, 1), Math.Round(m.Fat, 1) } : null,
+    });
+}
+
+<div class="page-header">
+    <div>
+        <h1>Progress &amp; Analytics</h1>
+        <p class="subtitle">@Model.From.ToString("MMM d") – @Model.To.ToString("MMM d, yyyy") · @Model.LoggedDays of @Model.TotalDays days logged</p>
+    </div>
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end" id="rangeForm">
+        <div class="btn-group" role="group" aria-label="Date range">
+            @foreach (var r in new[] { "7", "30", "90" })
+            {
+                <a class="btn btn-sm @(Model.Range == r ? "btn-primary" : "btn-outline-primary")" asp-route-range="@r">@r days</a>
+            }
+        </div>
+        <input type="hidden" name="range" value="custom" />
+        <div><label for="from" class="form-label small mb-0">From</label><input id="from" type="date" name="from" value="@Model.From.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+        <div><label for="to" class="form-label small mb-0">To</label><input id="to" type="date" name="to" value="@Model.To.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+        <button class="btn btn-sm btn-soft" type="submit">Apply</button>
+    </form>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3"><div class="card stat-card n-cal">
+        <div class="card-title-sm">Avg calories</div>
+        <div class="stat-value tabular">@(Model.AvgCalories?.ToString("#,0") ?? "-")</div>
+        <div class="stat-sub">per logged day</div>
+    </div></div>
+    <div class="col-6 col-xl-3"><div class="card stat-card n-protein">
+        <div class="card-title-sm">Avg protein</div>
+        <div class="stat-value tabular">@(Model.AvgProtein is { } ap ? $"{ap:0} g" : "-")</div>
+        <div class="stat-sub">per logged day</div>
+    </div></div>
+    <div class="col-6 col-xl-3"><div class="card stat-card">
+        <div class="card-title-sm">Goal adherence</div>
+        <div class="stat-value tabular">@(Model.AdherenceEligibleDays > 0 ? $"{Model.AdherenceDays}/{Model.AdherenceEligibleDays}" : "-")</div>
+        <div class="stat-sub">days within ±10% kcal and ≥90% protein</div>
+    </div></div>
+    <div class="col-6 col-xl-3"><div class="card stat-card">
+        <div class="card-title-sm">Weight change</div>
+        <div class="stat-value tabular">@(Model.WeightChange is { } wc ? $"{wc:+0.0;-0.0;0.0} {u}" : "-")</div>
+        <div class="stat-sub">first to last weigh-in in range</div>
+    </div></div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-8">
+        <div class="card h-100">
+            <div class="card-header">Daily calories vs goal</div>
+            <div class="card-body">
+                @if (Model.LoggedDays == 0)
+                {
+                    <div class="empty-state"><i class="bi bi-bar-chart"></i>No meals logged in this range yet. Log a few days and your trend will appear here.</div>
+                }
+                else
+                {
+                    <div class="chart-box"><canvas id="calChart" role="img" aria-label="Bar chart of daily calories compared with the calorie goal"></canvas></div>
+                    <p class="small text-muted mt-2 mb-0">Days without logged food are left blank, not counted as zero.</p>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card h-100">
+            <div class="card-header">Macro distribution (share of calories)</div>
+            <div class="card-body">
+                @if (Model.MacroKcalShare is null) { <div class="empty-state"><i class="bi bi-pie-chart"></i>No data yet.</div> }
+                else { <div class="chart-box" style="height: 240px"><canvas id="macroChart" role="img" aria-label="Doughnut chart of protein, carbohydrate and fat share of calories"></canvas></div> }
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header">Protein intake</div>
+            <div class="card-body">
+                @if (Model.LoggedDays == 0) { <div class="empty-state"><i class="bi bi-graph-up"></i>No data yet.</div> }
+                else { <div class="chart-box"><canvas id="proteinChart" role="img" aria-label="Line chart of daily protein compared with the protein goal"></canvas></div> }
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-6">
+        <div class="card h-100" id="weight">
+            <div class="card-header">Body weight</div>
+            <div class="card-body">
+                @if (Model.Weights.Count < 2)
+                {
+                    <div class="empty-state"><i class="bi bi-speedometer2"></i>Log your weight on at least two days in this range to see a trend.</div>
+                }
+                else
+                {
+                    <div class="chart-box"><canvas id="weightChart" role="img" aria-label="Line chart of body weight over time"></canvas></div>
+                    <p class="small text-muted mt-2 mb-0">Day-to-day changes are mostly water, salt and food in your gut, not fat. Look at the trend over several weeks.</p>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-7">
+        <div class="card">
+            <div class="card-header">Weekly averages</div>
+            <div class="table-responsive">
+                <table class="table mb-0">
+                    <thead><tr><th>Week of</th><th class="text-end">Avg kcal</th><th class="text-end">Avg protein</th><th class="text-end">Days logged</th></tr></thead>
+                    <tbody class="tabular">
+                        @foreach (var w in Model.Weeks)
+                        {
+                            <tr>
+                                <td>@w.WeekStart.ToString("MMM d")</td>
+                                <td class="text-end">@(w.AvgCalories?.ToString("#,0") ?? "-")</td>
+                                <td class="text-end">@(w.AvgProtein is { } p ? $"{p:0} g" : "-")</td>
+                                <td class="text-end">@w.DaysLogged</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-5">
+        <div class="card mb-3">
+            <div class="card-header">Log weight</div>
+            <div class="card-body">
+                <form method="post" asp-action="LogWeight" class="row g-2" novalidate>
+                    <div class="col-6"><label asp-for="WeightInput.Date" class="form-label"></label><input asp-for="WeightInput.Date" type="date" class="form-control" /></div>
+                    <div class="col-6"><label asp-for="WeightInput.Weight" class="form-label">Weight (@u)</label><input asp-for="WeightInput.Weight" type="number" step="0.1" class="form-control" required /><span asp-validation-for="WeightInput.Weight" class="text-danger small"></span></div>
+                    <div class="col-6"><label asp-for="WeightInput.BodyFatPercentage" class="form-label">Body fat % (optional)</label><input asp-for="WeightInput.BodyFatPercentage" type="number" step="0.1" class="form-control" /></div>
+                    <div class="col-6"><label asp-for="WeightInput.Notes" class="form-label">Note</label><input asp-for="WeightInput.Notes" class="form-control" maxlength="500" /></div>
+                    <div class="col-12"><button class="btn btn-primary" type="submit" data-once>Save weight</button></div>
+                </form>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">Recent weigh-ins</div>
+            @if (Model.WeightLogs.Count == 0) { <div class="empty-state"><i class="bi bi-speedometer2"></i>No weigh-ins yet.</div> }
+            <div class="list-group list-group-flush">
+                @foreach (var w in Model.WeightLogs)
+                {
+                    var val = Model.WeightUnit == WeightUnit.Kg ? w.WeightKg : w.WeightKg / NutritionCalculatorService.KgPerLb;
+                    <div class="list-group-item d-flex align-items-center gap-2">
+                        <span class="text-muted" style="width: 90px">@w.Date.ToString("MMM d, yy")</span>
+                        <strong class="tabular">@val.ToString("0.0") @u</strong>
+                        @if (w.BodyFatPercentage is { } bf) { <span class="badge badge-src">@bf.ToString("0.#")% BF</span> }
+                        <span class="small text-muted text-truncate">@w.Notes</span>
+                        <form method="post" asp-action="DeleteWeight" asp-route-id="@w.Id" class="ms-auto" data-confirm="Delete this weigh-in?">
+                            <button class="btn btn-sm btn-light" type="submit" aria-label="Delete weigh-in from @w.Date.ToString("MMM d")"><i class="bi bi-trash"></i></button>
+                        </form>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="application/json" id="chartData">@Html.Raw(chartData.Replace("<", "\\u003c"))</script>
+@section Scripts {
+    <script src="~/lib/chartjs/chart.umd.min.js"></script>
+    <script src="~/js/progress.js" asp-append-version="true"></script>
+}

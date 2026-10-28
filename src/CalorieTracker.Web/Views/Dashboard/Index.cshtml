@@ -1,0 +1,108 @@
+@model DashboardViewModel
+@{ ViewData["Title"] = "Dashboard"; }
+
+<div class="page-header">
+    <div>
+        <h1>Today</h1>
+        <p class="subtitle">@Model.Today.ToString("dddd, MMMM d")</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" asp-controller="FoodScanner" asp-action="Index"><i class="bi bi-camera me-1"></i>Scan a meal</a>
+        <a class="btn btn-soft" asp-controller="FoodDiary" asp-action="Add" asp-route-date="@Model.Today.ToString("yyyy-MM-dd")"><i class="bi bi-plus-lg me-1"></i>Add food</a>
+        <a class="btn btn-soft" asp-controller="Progress" asp-action="Index" asp-fragment="weight"><i class="bi bi-speedometer2 me-1"></i>Update weight</a>
+        <a class="btn btn-soft" asp-controller="NutritionGoals" asp-action="Index"><i class="bi bi-bullseye me-1"></i>Goals</a>
+    </div>
+</div>
+
+@if (Model.Problem is not null || Model.Targets is null)
+{
+    <div class="alert alert-warning d-flex gap-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+        <div>@(Model.Problem ?? "Your targets can't be calculated yet.") <a asp-controller="NutritionGoals" asp-action="Index">Review goals</a></div>
+    </div>
+}
+
+@if (Model.Targets is not null)
+{
+    var cal = Model.Calories!;
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-xl-3">
+            <div class="card stat-card n-cal">
+                <div class="d-flex justify-content-between"><div class="card-title-sm">Calories</div><div class="stat-icon n-icon"><i class="bi bi-fire"></i></div></div>
+                <div class="stat-value tabular">@cal.Consumed.ToString("#,0")</div>
+                <div class="stat-sub">Goal @cal.Target.ToString("#,0") kcal</div>
+                <div class="mt-1 small fw-semibold @(cal.IsOver ? "text-danger" : "n-text")">@(cal.IsOver ? $"{cal.Excess:#,0} kcal over" : $"{cal.Remaining:#,0} kcal remaining")</div>
+            </div>
+        </div>
+        @foreach (var (label, cls, icon, amt) in new[] { ("Protein", "n-protein", "bi-egg-fried", Model.Protein!), ("Carbs", "n-carbs", "bi-basket", Model.Carbs!), ("Fat", "n-fat", "bi-droplet", Model.Fat!) })
+        {
+            <div class="col-6 col-xl-3">
+                <div class="card stat-card @cls">
+                    <div class="d-flex justify-content-between"><div class="card-title-sm">@label</div><div class="stat-icon n-icon"><i class="bi @icon"></i></div></div>
+                    <div class="stat-value tabular">@amt.Consumed.ToString("0") <small class="fs-6 text-muted">g</small></div>
+                    <div class="stat-sub">Goal @amt.Target.ToString("0") g</div>
+                    <div class="mt-1 small fw-semibold @(amt.IsOver ? "text-danger" : "n-text")">@(amt.IsOver ? $"{amt.Excess:0} g over" : $"{amt.Remaining:0} g remaining")</div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-header">Daily progress</div>
+                <div class="card-body d-flex flex-wrap align-items-center gap-4">
+                    <div class="ring @(cal.IsOver ? "is-over" : null)" style="--p: @Math.Min(100, cal.PercentConsumed).ToString("0", System.Globalization.CultureInfo.InvariantCulture)"
+                         role="img" aria-label="@cal.PercentConsumed.ToString("0")% of calorie goal consumed">
+                        <div>
+                            <div class="ring-value tabular">@cal.PercentConsumed.ToString("0")%</div>
+                            <div class="small text-muted">of calorie goal</div>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 d-grid gap-3" style="min-width: 240px">
+                        <partial name="_MacroBar" model='new MacroBarModel("Calories", "n-cal", cal, "kcal", true)' />
+                        <partial name="_MacroBar" model='new MacroBarModel("Protein", "n-protein", Model.Protein!, "g")' />
+                        <partial name="_MacroBar" model='new MacroBarModel("Carbs", "n-carbs", Model.Carbs!, "g")' />
+                        <partial name="_MacroBar" model='new MacroBarModel("Fat", "n-fat", Model.Fat!, "g")' />
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-lightbulb me-1 text-warning"></i>What's left today</div>
+                <div class="card-body">
+                    @foreach (var s in Model.Suggestions) { <p>@s</p> }
+                    @if (Model.LatestWeightKg is { } w)
+                    {
+                        var calcW = Model.WeightUnit == WeightUnit.Kg ? w : w / NutritionCalculatorService.KgPerLb;
+                        <p class="small text-muted mb-0"><i class="bi bi-speedometer2 me-1"></i>Last weigh-in: @calcW.ToString("0.0") @(Model.WeightUnit == WeightUnit.Kg ? "kg" : "lb") on @Model.LatestWeightDate?.ToString("MMM d")</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Meals today</span>
+        <a class="small" asp-controller="FoodDiary" asp-action="Index">Open diary <i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="list-group list-group-flush">
+        @foreach (var meal in Model.Meals)
+        {
+            <div class="list-group-item d-flex flex-wrap align-items-center gap-3 py-3 px-3 px-md-4">
+                <div style="min-width: 110px" class="fw-semibold">@meal.MealType</div>
+                <div class="flex-grow-1 text-muted small text-truncate" style="min-width: 0; max-width: 100%">
+                    @(meal.ItemNames.Count == 0 ? "Nothing logged yet" : string.Join(", ", meal.ItemNames))
+                </div>
+                @if (meal.ItemNames.Count > 0) { <partial name="_NutrientChips" model="meal.Totals" /> }
+                <div class="d-flex gap-1">
+                    <a class="btn btn-sm btn-soft" asp-controller="FoodDiary" asp-action="Add" asp-route-date="@Model.Today.ToString("yyyy-MM-dd")" asp-route-meal="@meal.MealType" aria-label="Add food to @meal.MealType"><i class="bi bi-plus-lg"></i></a>
+                    <a class="btn btn-sm btn-soft" asp-controller="FoodScanner" asp-action="Index" asp-route-date="@Model.Today.ToString("yyyy-MM-dd")" asp-route-meal="@meal.MealType" aria-label="Scan a photo for @meal.MealType"><i class="bi bi-camera"></i></a>
+                </div>
+            </div>
+        }
+    </div>
+</div>

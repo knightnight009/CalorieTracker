@@ -1,0 +1,35 @@
+@model EditDiaryItemInput
+@{ ViewData["Title"] = "Edit " + Model.FoodName; }
+<div class="mx-auto" style="max-width: 760px">
+    <div class="page-header">
+        <div>
+            <h1>Edit entry</h1>
+            <p class="subtitle">@Model.FoodName · @Model.Date.ToString("ddd, MMM d")</p>
+        </div>
+        <a class="btn btn-soft" asp-action="Index" asp-route-date="@Model.Date.ToString("yyyy-MM-dd")"><i class="bi bi-arrow-left me-1"></i>Back</a>
+    </div>
+    <div class="card"><div class="card-body">
+        <form method="post" novalidate id="editItemForm">
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
+            <input type="hidden" asp-for="Id" />
+            <div class="row g-3 mb-3">
+                <div class="col-md-6"><label asp-for="Name" class="form-label">Food name</label><input asp-for="Name" class="form-control" /><span asp-validation-for="Name" class="text-danger small"></span></div>
+                <div class="col-md-6"><label asp-for="MealType" class="form-label">Meal</label><select asp-for="MealType" asp-items="Html.GetEnumSelectList<MealType>()" class="form-select"></select></div>
+                <div class="col-4"><label asp-for="Quantity" class="form-label">Servings</label><input asp-for="Quantity" type="number" step="0.05" class="form-control" data-original="@Model.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture)" /><span asp-validation-for="Quantity" class="text-danger small"></span></div>
+                <div class="col-4"><label asp-for="PortionDescription" class="form-label"></label><input asp-for="PortionDescription" class="form-control" /></div>
+                <div class="col-4"><label asp-for="WeightGrams" class="form-label"></label><input asp-for="WeightGrams" type="number" step="any" class="form-control" /><span asp-validation-for="WeightGrams" class="text-danger small"></span></div>
+            </div>
+            <div class="form-check form-switch mb-3">
+                <input asp-for="RescaleFromQuantity" class="form-check-input" role="switch" id="rescaleToggle" />
+                <label asp-for="RescaleFromQuantity" class="form-check-label" for="rescaleToggle"></label>
+                <div class="form-text">On: nutrition is scaled by the change in servings (the preview below updates as you type; the server recalculates when you save). Off: edit the numbers directly.</div>
+            </div>
+            <fieldset id="nutrientFields">
+                <legend class="visually-hidden">Nutrition</legend>
+                <partial name="_NutrientInputs" for="Nutrients" />
+            </fieldset>
+            <button type="submit" class="btn btn-primary mt-4" data-once><i class="bi bi-check-lg me-1"></i>Save changes</button>
+        </form>
+    </div></div>
+</div>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

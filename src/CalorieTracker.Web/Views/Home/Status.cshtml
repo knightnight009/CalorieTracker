@@ -1,0 +1,10 @@
+@{
+    var code = ViewData["StatusCode"] as int? ?? 0;
+    ViewData["Title"] = code == 404 ? "Not found" : "Request problem";
+}
+<div class="auth-wrap text-center">
+    <i class="bi @(code == 404 ? "bi-signpost-split" : "bi-exclamation-circle") display-5 text-muted" aria-hidden="true"></i>
+    <h1 class="h3 mt-3">@(code switch { 404 => "Page not found", 403 => "You don't have access to this", 429 => "Too many requests", _ => "Something went wrong" })</h1>
+    <p class="text-muted">@(code == 429 ? "Please wait a minute and try again." : "The page may have moved, or the item doesn't exist.")</p>
+    <a class="btn btn-primary" href="/">Go to the home page</a>
+</div>

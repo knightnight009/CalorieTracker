@@ -1,0 +1,33 @@
+# Applies EF Core migrations to the production database. Run manually from the Actions tab
+# (Actions → Migrate database → Run workflow) BEFORE deploying a release that adds a migration.
+name: Migrate database
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "migrate" to apply pending migrations to the production database
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: github.event.inputs.confirm == 'migrate'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet tool restore
+      - name: Show pending migrations
+        run: dotnet ef migrations list --project src/CalorieTracker.Web
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      - name: Apply migrations
+        run: dotnet ef database update --project src/CalorieTracker.Web
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.PRODUCTION_DATABASE_URL }}

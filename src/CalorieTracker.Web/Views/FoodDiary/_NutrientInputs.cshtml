@@ -1,0 +1,10 @@
+@model NutrientFields
+@* Field names are relative to the parent form's prefix via ViewData.TemplateInfo.HtmlFieldPrefix. *@
+<div class="row g-3">
+    <div class="col-6 col-md-4 n-cal"><label asp-for="Calories" class="form-label n-text fw-semibold"></label><input asp-for="Calories" type="number" step="any" min="0" class="form-control" data-nutrient="Calories" /><span asp-validation-for="Calories" class="text-danger small"></span></div>
+    <div class="col-6 col-md-4 n-protein"><label asp-for="ProteinGrams" class="form-label n-text fw-semibold"></label><input asp-for="ProteinGrams" type="number" step="any" min="0" class="form-control" data-nutrient="ProteinGrams" /><span asp-validation-for="ProteinGrams" class="text-danger small"></span></div>
+    <div class="col-6 col-md-4 n-carbs"><label asp-for="CarbohydratesGrams" class="form-label n-text fw-semibold"></label><input asp-for="CarbohydratesGrams" type="number" step="any" min="0" class="form-control" data-nutrient="CarbohydratesGrams" /><span asp-validation-for="CarbohydratesGrams" class="text-danger small"></span></div>
+    <div class="col-6 col-md-4 n-fat"><label asp-for="FatGrams" class="form-label n-text fw-semibold"></label><input asp-for="FatGrams" type="number" step="any" min="0" class="form-control" data-nutrient="FatGrams" /><span asp-validation-for="FatGrams" class="text-danger small"></span></div>
+    <div class="col-6 col-md-4"><label asp-for="FiberGrams" class="form-label"></label><input asp-for="FiberGrams" type="number" step="any" min="0" class="form-control" data-nutrient="FiberGrams" /><span asp-validation-for="FiberGrams" class="text-danger small"></span></div>
+    <div class="col-6 col-md-4"><label asp-for="SugarGrams" class="form-label"></label><input asp-for="SugarGrams" type="number" step="any" min="0" class="form-control" data-nutrient="SugarGrams" /><span asp-validation-for="SugarGrams" class="text-danger small"></span></div>
+</div>

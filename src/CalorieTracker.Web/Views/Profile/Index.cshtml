@@ -1,0 +1,31 @@
+@model ProfileSetupViewModel
+@{ ViewData["Title"] = "Profile & Settings"; }
+<div class="page-header">
+    <div>
+        <h1>Profile &amp; Settings</h1>
+        <p class="subtitle">Changes here recalculate your BMR, TDEE and targets.</p>
+    </div>
+</div>
+<div class="row g-4">
+    <div class="col-xl-8">
+        <partial name="_ProfileForm" model="Model" />
+    </div>
+    <div class="col-xl-4">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-shield-lock me-1"></i>Account</div>
+            <div class="list-group list-group-flush">
+                <a class="list-group-item list-group-item-action" asp-area="Identity" asp-page="/Account/Manage/Email"><i class="bi bi-envelope me-2"></i>Email</a>
+                <a class="list-group-item list-group-item-action" asp-area="Identity" asp-page="/Account/Manage/ChangePassword"><i class="bi bi-key me-2"></i>Change password</a>
+                <a class="list-group-item list-group-item-action" asp-area="Identity" asp-page="/Account/Manage/TwoFactorAuthentication"><i class="bi bi-phone me-2"></i>Two-factor authentication</a>
+                <a class="list-group-item list-group-item-action" asp-area="Identity" asp-page="/Account/Manage/PersonalData"><i class="bi bi-download me-2"></i>Download or delete my data</a>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock me-1"></i>Time zone</div>
+            <div class="card-body small">
+                Your diary days follow <strong>@Model.TimeZoneId</strong>. It's taken from your browser when you save this form.
+            </div>
+        </div>
+    </div>
+</div>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

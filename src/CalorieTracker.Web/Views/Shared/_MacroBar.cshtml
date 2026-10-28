@@ -1,0 +1,26 @@
+@model MacroBarModel
+@{
+    var fmt = Model.Unit == "kcal" ? "#,0" : "0.#";
+    var pct = Math.Min(100, Model.Amount.PercentConsumed);
+}
+<div class="@Model.ColorClass">
+    <div class="d-flex justify-content-between align-items-baseline mb-1 gap-2 flex-wrap">
+        <span class="fw-semibold"><span class="n-dot me-1" aria-hidden="true"></span>@Model.Label</span>
+        <span class="tabular small">
+            <strong>@Model.Amount.Consumed.ToString(fmt)</strong> / @Model.Amount.Target.ToString(fmt) @Model.Unit
+            @if (Model.Amount.IsOver)
+            {
+                <span class="over-badge ms-1">@Model.Amount.Excess.ToString(fmt) @Model.Unit over</span>
+            }
+            else
+            {
+                <span class="text-muted ms-1">· @Model.Amount.Remaining.ToString(fmt) @Model.Unit left</span>
+            }
+        </span>
+    </div>
+    <div class="macro-bar @(Model.Large ? "lg" : null) @(Model.Amount.IsOver ? "is-over" : null)" role="progressbar"
+         aria-label="@Model.Label" aria-valuemin="0" aria-valuemax="@Model.Amount.Target.ToString("0")" aria-valuenow="@Model.Amount.Consumed.ToString("0")"
+         aria-valuetext="@Model.Amount.Consumed.ToString(fmt) of @Model.Amount.Target.ToString(fmt) @Model.Unit">
+        <span style="width: @pct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)%"></span>
+    </div>
+</div>

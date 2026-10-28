@@ -1,0 +1,122 @@
+@model FoodAnalysisResultViewModel
+@{
+    ViewData["Title"] = "Review AI estimate";
+    var a = Model.Analysis!;
+    string Conf(decimal c) => c >= 0.75m ? "high" : c >= 0.5m ? "mid" : "low";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Review the estimate</h1>
+        <p class="subtitle">Check each item and adjust portions or numbers before saving. Totals update as you edit and are recalculated on the server when you save.</p>
+    </div>
+    <span class="confidence @Conf(a.OverallConfidence)"><i class="bi bi-speedometer"></i>Overall confidence @a.OverallConfidence.ToString("P0")</span>
+</div>
+
+@if (a.RequiresClarification)
+{
+    <div class="alert alert-info d-flex gap-2" role="alert">
+        <i class="bi bi-question-circle-fill mt-1"></i>
+        <div><strong>The AI needs more information:</strong> @a.ClarificationQuestion
+            <div class="small mt-1">Adjust the items below with what you know, or <a asp-action="Index" asp-route-date="@Model.Date.ToString("yyyy-MM-dd")" asp-route-meal="@Model.MealType">scan again</a> and add the details in the context box.</div></div>
+    </div>
+}
+@foreach (var w in a.Warnings) { <div class="alert alert-warning py-2 small">@w</div> }
+@if (ViewData["AlreadySaved"] is true)
+{
+    <div class="alert alert-success">This scan was already saved to your diary. <a asp-controller="FoodDiary" asp-action="Index" asp-route-date="@Model.Date.ToString("yyyy-MM-dd")">Open diary</a></div>
+}
+
+<form method="post" asp-action="Confirm" id="reviewForm" novalidate>
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+    <input type="hidden" asp-for="ScanId" />
+
+    <div class="card mb-3">
+        <div class="table-responsive">
+            <table class="table review-table mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Keep</th><th scope="col">Food</th><th scope="col">Portion</th><th scope="col">Grams</th>
+                        <th scope="col" class="n-cal"><span class="n-text">kcal</span></th><th scope="col" class="n-protein"><span class="n-text">Protein</span></th>
+                        <th scope="col" class="n-carbs"><span class="n-text">Carbs</span></th><th scope="col" class="n-fat"><span class="n-text">Fat</span></th>
+                    </tr>
+                </thead>
+                <tbody id="reviewRows">
+                    @for (var i = 0; i < Model.Items.Count; i++)
+                    {
+                        var ai = Model.Items[i].OriginalIndex >= 0 && Model.Items[i].OriginalIndex < a.Items.Count ? a.Items[Model.Items[i].OriginalIndex] : null;
+                        <tr class="review-row">
+                            <td>
+                                <input type="hidden" name="Items[@i].OriginalIndex" value="@Model.Items[i].OriginalIndex" />
+                                <input class="form-check-input" type="checkbox" name="Items[@i].Include" value="true" @(Model.Items[i].Include ? "checked" : null) aria-label="Keep item @(i + 1)" data-include />
+                                <input type="hidden" name="Items[@i].Include" value="false" />
+                            </td>
+                            <td style="min-width: 200px">
+                                <input class="form-control form-control-sm fw-semibold" name="Items[@i].Name" value="@Model.Items[i].Name" maxlength="200" required aria-label="Food name" />
+                                @if (ai is not null)
+                                {
+                                    <div class="mt-1 d-flex flex-wrap gap-1 align-items-center">
+                                        <span class="confidence @Conf(ai.Confidence)">@ai.Confidence.ToString("P0")</span>
+                                        @if (ai.CookingMethod is not null) { <span class="badge badge-src">@ai.CookingMethod</span> }
+                                    </div>
+                                    @if (ai.Notes is not null) { <div class="small text-muted mt-1">@ai.Notes</div> }
+                                    @foreach (var w in ai.Warnings) { <div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle me-1"></i>@w</div> }
+                                }
+                                <span asp-validation-for="Items[i].Name" class="text-danger small"></span>
+                            </td>
+                            <td><input class="form-control form-control-sm" name="Items[@i].PortionDescription" value="@Model.Items[i].PortionDescription" maxlength="100" aria-label="Portion" /></td>
+                            <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[@i].WeightGrams" value="@Model.Items[i].WeightGrams" aria-label="Weight in grams" /></td>
+                            <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[@i].Calories" value="@Model.Items[i].Calories" required aria-label="Calories" data-sum="cal" /></td>
+                            <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[@i].ProteinGrams" value="@Model.Items[i].ProteinGrams" required aria-label="Protein grams" data-sum="p" /></td>
+                            <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[@i].CarbohydratesGrams" value="@Model.Items[i].CarbohydratesGrams" required aria-label="Carbohydrate grams" data-sum="c" /></td>
+                            <td>
+                                <input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[@i].FatGrams" value="@Model.Items[i].FatGrams" required aria-label="Fat grams" data-sum="f" />
+                                <input type="hidden" name="Items[@i].FiberGrams" value="@Model.Items[i].FiberGrams" />
+                                <input type="hidden" name="Items[@i].SugarGrams" value="@Model.Items[i].SugarGrams" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold tabular">
+                        <td colspan="4" class="text-end">Meal total</td>
+                        <td class="n-cal"><span class="n-text" id="sum-cal">@a.TotalCalories.ToString("0")</span></td>
+                        <td class="n-protein"><span class="n-text" id="sum-p">@a.TotalProteinGrams.ToString("0.#")</span> g</td>
+                        <td class="n-carbs"><span class="n-text" id="sum-c">@a.TotalCarbsGrams.ToString("0.#")</span> g</td>
+                        <td class="n-fat"><span class="n-text" id="sum-f">@a.TotalFatGrams.ToString("0.#")</span> g</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="card-body border-top">
+            <button type="button" class="btn btn-sm btn-soft" id="addRow"><i class="bi bi-plus-lg me-1"></i>Add a missing item</button>
+        </div>
+    </div>
+
+    <div class="card mb-3"><div class="card-body">
+        <div class="row g-3">
+            <div class="col-sm-4"><label asp-for="MealType" class="form-label">Meal</label><select asp-for="MealType" asp-items="Html.GetEnumSelectList<MealType>()" class="form-select"></select></div>
+            <div class="col-sm-4"><label asp-for="Date" class="form-label"></label><input asp-for="Date" type="date" class="form-control" /></div>
+            <div class="col-sm-4"><label asp-for="Notes" class="form-label"></label><input asp-for="Notes" class="form-control" maxlength="500" /></div>
+        </div>
+    </div></div>
+
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button type="submit" class="btn btn-primary btn-lg" data-once><i class="bi bi-check-lg me-1"></i>Save to diary</button>
+        <a class="btn btn-outline-secondary" asp-action="Index">Discard &amp; scan again</a>
+        <span class="small text-muted ms-auto">Analyzed by @Model.Provider (@Model.Model). Estimates only, not lab measurements.</span>
+    </div>
+</form>
+
+<template id="rowTemplate">
+    <tr class="review-row">
+        <td><input type="hidden" name="Items[__i__].OriginalIndex" value="-1" /><input class="form-check-input" type="checkbox" name="Items[__i__].Include" value="true" checked aria-label="Keep item" data-include /><input type="hidden" name="Items[__i__].Include" value="false" /></td>
+        <td><input class="form-control form-control-sm fw-semibold" name="Items[__i__].Name" maxlength="200" required aria-label="Food name" placeholder="Food name" /></td>
+        <td><input class="form-control form-control-sm" name="Items[__i__].PortionDescription" maxlength="100" aria-label="Portion" /></td>
+        <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[__i__].WeightGrams" aria-label="Weight in grams" /></td>
+        <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[__i__].Calories" value="0" required aria-label="Calories" data-sum="cal" /></td>
+        <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[__i__].ProteinGrams" value="0" required aria-label="Protein grams" data-sum="p" /></td>
+        <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[__i__].CarbohydratesGrams" value="0" required aria-label="Carbohydrate grams" data-sum="c" /></td>
+        <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[__i__].FatGrams" value="0" required aria-label="Fat grams" data-sum="f" /></td>
+    </tr>
+</template>

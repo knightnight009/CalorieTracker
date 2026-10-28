@@ -1,0 +1,45 @@
+# Build output
+bin/
+obj/
+out/
+publish/
+artifacts/
+TestResults/
+*.trx
+coverage*.xml
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+.DS_Store
+Thumbs.db
+
+# Secrets and local config: never commit real credentials
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.pem
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.dump
+*.sql.gz
+backups/
+uploads/
+wwwroot/uploads/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Local-only test account notes
+docs/dev-test-accounts.md

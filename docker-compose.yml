@@ -1,0 +1,16 @@
+# Local development database only. These credentials are for a throwaway container on your machine;
+# production credentials come from environment variables (see README).
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: calorie-pg
+    environment:
+      POSTGRES_USER: calorie
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: calorietracker
+    ports:
+      - "5433:5432"
+    volumes:
+      - calorie-pg-data:/var/lib/postgresql/data
+volumes:
+  calorie-pg-data:
