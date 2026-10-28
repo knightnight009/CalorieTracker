@@ -175,6 +175,7 @@ a { text-underline-offset: 2px; }
 .nav-pills .nav-link { border-radius: 999px; color: var(--ct-muted); font-weight: 600; }
 .nav-pills .nav-link.active { background: var(--ct-brand); }
 .alert { border-radius: var(--ct-radius-sm); border: 0; }
+.validation-summary-valid { display: none; } /* empty error summaries keep their alert styling otherwise */
 .chart-box { position: relative; height: 280px; }
 .disclaimer { font-size: .85rem; color: var(--ct-muted); }
 .auth-wrap { max-width: 460px; margin: 3rem auto; }
