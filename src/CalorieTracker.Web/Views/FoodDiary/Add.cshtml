@@ -42,10 +42,14 @@
                 <label class="visually-hidden" for="q">Search foods</label>
                 <input id="q" name="q" value="@Model.Query" class="form-control form-control-lg" placeholder="Search your foods@(Model.UsdaConfigured ? " and the USDA database" : "")…" autofocus />
                 <button class="btn btn-primary px-4" type="submit">Search</button>
+                @if (Model.AiConfigured)
+                {
+                    <button class="btn btn-outline-primary" type="submit" formaction="@Url.Action("AiSearch")" title="Estimate nutrition with AI"><i class="bi bi-stars me-1"></i>Search with AI</button>
+                }
             </div>
             @if (!Model.UsdaConfigured)
             {
-                <div class="form-text">USDA FoodData Central search is off. Set <code>USDA_API_KEY</code> to enable it (see README). Your own foods and manual entry work without it.</div>
+                <div class="form-text">USDA database search is off (<code>USDA_API_KEY</code> not set).@(Model.AiConfigured ? " Use \"Search with AI\" for estimated values." : " Your own foods and manual entry work without it.")</div>
             }
         </form>
 
@@ -73,6 +77,53 @@
                 </form>
             }
         </div>
+
+        @if (Model.AiSearched)
+        {
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between flex-wrap gap-2">
+                    <span><i class="bi bi-stars me-1"></i>AI estimates for "@Model.Query"</span>
+                    <span class="small text-muted fw-normal">Estimated by @Model.AiProvider, not a database. Check before adding.</span>
+                </div>
+                @if (Model.AiError is not null)
+                {
+                    <div class="alert alert-warning m-3">@Model.AiError</div>
+                }
+                else if (Model.AiResults.Count == 0)
+                {
+                    <div class="empty-state"><i class="bi bi-stars"></i>No estimates. Try naming the food more specifically (e.g. "grilled chicken breast 150 g").</div>
+                }
+                @for (var i = 0; i < Model.AiResults.Count; i++)
+                {
+                    var r = Model.AiResults[i];
+                    <form method="post" asp-action="AddAiEstimate" class="food-row flex-wrap">
+                        @Hidden()
+                        <input type="hidden" name="Name" value="@r.Name" />
+                        <input type="hidden" name="PortionDescription" value="@r.PortionDescription" />
+                        <input type="hidden" name="WeightGrams" value="@r.EstimatedWeightGrams" />
+                        <input type="hidden" name="Confidence" value="@r.Confidence" />
+                        <input type="hidden" name="Nutrients.Calories" value="@r.Calories" />
+                        <input type="hidden" name="Nutrients.ProteinGrams" value="@r.ProteinGrams" />
+                        <input type="hidden" name="Nutrients.CarbohydratesGrams" value="@r.CarbsGrams" />
+                        <input type="hidden" name="Nutrients.FatGrams" value="@r.FatGrams" />
+                        <input type="hidden" name="Nutrients.FiberGrams" value="@r.FiberGrams" />
+                        <input type="hidden" name="Nutrients.SugarGrams" value="@r.SugarGrams" />
+                        <div class="min-w-0 flex-grow-1">
+                            <div class="food-name">@r.Name <span class="badge badge-ai ms-1">AI</span> <span class="confidence @(r.Confidence >= 0.75m ? "high" : r.Confidence >= 0.5m ? "mid" : "low")">@r.Confidence.ToString("P0")</span></div>
+                            <div class="food-meta">Per @r.PortionDescription@(r.EstimatedWeightGrams is { } g ? $" ({g:0} g)" : ""): @r.Calories.ToString("0") kcal · P @r.ProteinGrams.ToString("0.#") · C @r.CarbsGrams.ToString("0.#") · F @r.FatGrams.ToString("0.#")</div>
+                            @if (r.Notes is not null) { <div class="small text-muted">@r.Notes</div> }
+                            @foreach (var w in r.Warnings) { <div class="small text-danger">@w</div> }
+                        </div>
+                        <div class="d-flex gap-2 align-items-center">
+                            <label class="visually-hidden" for="ai-qty-@i">Servings</label>
+                            <input id="ai-qty-@i" name="Quantity" type="number" step="0.25" min="0.01" max="100" value="1" class="form-control form-control-sm" style="width: 80px" />
+                            <span class="small text-muted">serving(s)</span>
+                            <button class="btn btn-sm btn-primary" type="submit" data-once>Add</button>
+                        </div>
+                    </form>
+                }
+            </div>
+        }
 
         @if (!string.IsNullOrEmpty(Model.Query) && Model.UsdaConfigured)
         {

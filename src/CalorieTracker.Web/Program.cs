@@ -39,7 +39,7 @@ var aiOptions = new AiOptions
     TimeoutSeconds = config.GetValue("AI_TIMEOUT_SECONDS", 60),
 };
 var emailOptions = new EmailOptions { Provider = config["EMAIL_PROVIDER"], ApiKey = config["EMAIL_API_KEY"], FromAddress = config["EMAIL_FROM_ADDRESS"] };
-var requireConfirmedEmail = config.GetValue("Auth:RequireConfirmedEmail", true);
+var requireConfirmedEmail = config.GetValue("Auth:RequireConfirmedEmail", false);
 
 var configErrors = StartupConfigValidator.Validate(builder.Environment, connectionString, emailOptions, requireConfirmedEmail);
 // `dotnet ef` builds this host only to read the DbContext, so it needs nothing but the connection string.

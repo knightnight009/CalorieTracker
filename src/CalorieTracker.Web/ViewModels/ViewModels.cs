@@ -197,6 +197,16 @@ public class AddUsdaInput : AddToDiaryInput
     [Range(1, 5000), Display(Name = "Grams")] public decimal Grams { get; set; } = 100;
 }
 
+public class AddAiEstimateInput : AddToDiaryInput
+{
+    [Required, StringLength(200)] public string Name { get; set; } = "";
+    [StringLength(100)] public string? PortionDescription { get; set; }
+    [Range(0.1, 5000)] public decimal? WeightGrams { get; set; }
+    public NutrientFields Nutrients { get; set; } = new();
+    [Range(0.01, 100)] public decimal Quantity { get; set; } = 1;
+    [Range(0, 1)] public decimal? Confidence { get; set; }
+}
+
 public class AddRecentInput : AddToDiaryInput
 {
     public int DiaryItemId { get; set; }
@@ -216,6 +226,11 @@ public class AddFoodViewModel
     public string Tab { get; set; } = "search";
     public List<Food> MyFoods { get; set; } = [];
     public List<UsdaFood> UsdaResults { get; set; } = [];
+    public bool AiConfigured { get; set; }
+    public bool AiSearched { get; set; }
+    public string? AiProvider { get; set; }
+    public string? AiError { get; set; }
+    public List<FoodItemAnalysis> AiResults { get; set; } = [];
     public bool UsdaConfigured { get; set; }
     public string? UsdaError { get; set; }
     public List<FoodDiaryItem> RecentItems { get; set; } = [];

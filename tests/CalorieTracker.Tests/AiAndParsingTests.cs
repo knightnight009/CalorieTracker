@@ -110,10 +110,16 @@ public class FoodVisionServiceTests
     private sealed class FakeProvider(string name, bool configured, Func<FoodAnalysisResult> run) : IFoodVisionProvider
     {
         public int Calls;
+        public (byte[]? Image, string Prompt, string Text) Last;
         public string Name => name;
         public string Model => "m";
         public bool IsConfigured => configured;
-        public Task<FoodAnalysisResult> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct) { Calls++; return Task.FromResult(run()); }
+        public Task<FoodAnalysisResult> AnalyzeAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, CancellationToken ct)
+        {
+            Calls++;
+            Last = (image, systemPrompt, userText);
+            return Task.FromResult(run());
+        }
     }
 
     private static readonly FoodAnalysisResult Ok = FoodAnalysisParser.Parse("""{"items":[{"name":"Egg","portionDescription":"1","calories":78,"proteinGrams":6,"carbsGrams":0.6,"fatGrams":5,"confidence":0.9,"notes":""}],"overallConfidence":0.9,"requiresClarification":false}""");
@@ -137,6 +143,22 @@ public class FoodVisionServiceTests
         Assert.Equal("ollama", outcome.Provider);
         Assert.Equal(1, gemini.Calls); // selected provider was tried first
     }
+
+    [Fact]
+    public async Task TextSearch_SendsNoImage_AndUsesSearchPrompt()
+    {
+        var gemini = new FakeProvider("gemini", true, () => Ok);
+        var svc = new FoodVisionService([gemini], new AiOptions(), NullLogger<FoodVisionService>.Instance);
+        var outcome = await svc.EstimateFromTextAsync("2 boiled eggs", default);
+        Assert.Single(outcome.Result.Items);
+        Assert.Null(gemini.Last.Image);
+        Assert.Equal(FoodVisionPrompt.TextSearchSystem, gemini.Last.Prompt);
+        Assert.Contains("<search>\n2 boiled eggs\n</search>", gemini.Last.Text);
+    }
+
+    [Fact]
+    public void TextSearchMessage_TruncatesLongQueries() =>
+        Assert.True(FoodVisionPrompt.TextSearchMessage(new string('a', 500)).Length < 200);
 
     [Fact]
     public async Task DoesNotFallBack_OnInvalidResponse()

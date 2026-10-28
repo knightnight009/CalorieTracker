@@ -132,6 +132,22 @@ public class IntegrationTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
+    public async Task Register_SignsInImmediately_WithoutEmailConfirmation()
+    {
+        var client = app.NewClient();
+        var email = Email("signup");
+        var res = await AppFactory.PostFormAsync(client, "/Identity/Account/Register", "/Identity/Account/Register", new()
+        {
+            ["Input.Email"] = email, ["Input.Password"] = AppFactory.Password, ["Input.ConfirmPassword"] = AppFactory.Password,
+        });
+        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+        Assert.DoesNotContain("RegisterConfirmation", res.Headers.Location!.ToString());
+
+        // Already signed in: private pages work without a separate login.
+        Assert.Contains("/Profile/Setup", (await client.GetAsync("/Dashboard")).Headers.Location!.ToString());
+    }
+
+    [Fact]
     public async Task Login_WrongPassword_LocksAccountAfterFiveAttempts()
     {
         var email = Email("lockout");
@@ -350,6 +366,56 @@ public class IntegrationTests(AppFactory app) : IClassFixture<AppFactory>
             Assert.Equal(entry.Id, scan.FoodDiaryEntryId);
             return 0;
         });
+    }
+
+    [Fact]
+    public async Task AddAiEstimate_ScalesByServings_AndIsLabelledAsAi()
+    {
+        var email = Email("aisearch");
+        var userId = await app.CreateUserAsync(email);
+        var client = await app.LoginAsync(email);
+
+        // Without an AI provider the AI search page still renders (no crash, no fake results).
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/FoodDiary/AiSearch?date=2026-06-01&meal=Lunch&q=egg")).StatusCode);
+
+        var res = await AppFactory.PostFormAsync(client, "/FoodDiary/Add?date=2026-06-01", "/FoodDiary/AddAiEstimate", new()
+        {
+            ["Date"] = "2026-06-01", ["MealType"] = "Lunch", ["ClientRequestId"] = Guid.NewGuid().ToString(),
+            ["Name"] = "Boiled egg", ["PortionDescription"] = "1 large", ["WeightGrams"] = "50", ["Confidence"] = "0.9", ["Quantity"] = "2",
+            ["Nutrients.Calories"] = "78", ["Nutrients.ProteinGrams"] = "6.3", ["Nutrients.CarbohydratesGrams"] = "0.6", ["Nutrients.FatGrams"] = "5.3",
+        });
+        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+
+        var item = await app.WithDbAsync(db => db.FoodDiaryItems.AsNoTracking().SingleAsync(i => i.Entry!.UserId == userId));
+        Assert.Equal(156m, item.Calories);
+        Assert.Equal(12.6m, item.ProteinGrams);
+        Assert.Equal(100m, item.WeightGrams);
+        Assert.Equal("2 × 1 large", item.PortionDescription);
+        Assert.True(item.IsAiEstimated);
+        Assert.Equal(NutritionSource.AiEstimate, item.NutritionSource);
+
+        // Implausible posted values are rejected like manual entry.
+        res = await AppFactory.PostFormAsync(client, "/FoodDiary/Add?date=2026-06-01", "/FoodDiary/AddAiEstimate", new()
+        {
+            ["Date"] = "2026-06-01", ["MealType"] = "Lunch", ["ClientRequestId"] = Guid.NewGuid().ToString(), ["Name"] = "Bad", ["Quantity"] = "1",
+            ["Nutrients.Calories"] = "-5", ["Nutrients.ProteinGrams"] = "1", ["Nutrients.CarbohydratesGrams"] = "1", ["Nutrients.FatGrams"] = "1",
+        });
+        Assert.Equal(1, await app.WithDbAsync(db => db.FoodDiaryItems.CountAsync(i => i.Entry!.UserId == userId)));
+    }
+
+    [Fact]
+    public async Task ManualEntry_InvalidValues_ReshowsTheForm()
+    {
+        var email = Email("reshow");
+        await app.CreateUserAsync(email);
+        var client = await app.LoginAsync(email);
+        var res = await AppFactory.PostFormAsync(client, "/FoodDiary/Add?date=2026-06-01", "/FoodDiary/AddManual", new()
+        {
+            ["Manual.Date"] = "2026-06-01", ["Manual.MealType"] = "Lunch", ["Manual.ClientRequestId"] = Guid.NewGuid().ToString(), ["Manual.Name"] = "",
+            ["Manual.Nutrients.Calories"] = "100", ["Manual.Nutrients.ProteinGrams"] = "1", ["Manual.Nutrients.CarbohydratesGrams"] = "1", ["Manual.Nutrients.FatGrams"] = "1",
+        });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains("Add food", await res.Content.ReadAsStringAsync());
     }
 
     [Fact]

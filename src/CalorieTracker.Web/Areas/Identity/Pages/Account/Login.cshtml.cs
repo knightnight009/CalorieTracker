@@ -45,7 +45,7 @@ public class LoginModel(SignInManager<ApplicationUser> signInManager, ILogger<Lo
             return RedirectToPage("./Lockout");
         }
         // Same message for unknown email, wrong password and unconfirmed email, so accounts can't be enumerated.
-        ModelState.AddModelError(string.Empty, "Invalid login attempt. If you just registered, confirm your email first.");
+        ModelState.AddModelError(string.Empty, "Invalid login attempt.");
         return Page();
     }
 }

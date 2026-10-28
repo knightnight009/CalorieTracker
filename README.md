@@ -32,10 +32,10 @@ It's built for a few people with separate accounts, running on near-zero-cost ho
 
 | Area | What it does |
 |---|---|
-| **Accounts** | Register, email confirmation, login/logout, forgot/reset password, 2FA, account lockout after 5 failed logins, per-IP rate limit on auth posts, download/delete personal data (ASP.NET Core Identity). |
+| **Accounts** | Register (signs you straight in; email confirmation is optional), login/logout, forgot/reset password, 2FA, account lockout after 5 failed logins, per-IP rate limit on auth posts, download/delete personal data (ASP.NET Core Identity). |
 | **Profile wizard** | Sex used for BMR, date of birth (age is always calculated, never stored), weight & height in kg/lb and cm/ft-in, activity level, workout days/duration/intensity (informational only, never added on top of the activity factor), goal, target weight / body fat, deficit/surplus, protein and fat preferences, time zone. |
 | **Nutrition goals** | Mifflin-St Jeor BMR, TDEE = BMR × configurable activity factor, daily and weekly maintenance, % deficit (10/15/20/25) or surplus, or a manual target. Shows the deficit in kcal and %, an estimated weekly change (labelled as an approximation), and warnings for aggressive deficits and targets below BMR. Macro order: protein (g/kg) → fat (% of kcal) → carbs fill the rest. It rejects negative carbs, shows rounding differences, and supports advanced custom grams (must be within 5% of the calorie goal). |
-| **Food diary** | Per-day view by meal, previous/next/jump-to-date, per-meal and per-day totals. Add food by search (your foods + USDA), recent foods, saved meals or manual entry; save custom foods; favorites; edit (rescale by servings or edit numbers); delete item or meal; copy a meal to another date; save a meal for reuse. Double submits are ignored (idempotency key). |
+| **Food diary** | Per-day view by meal, previous/next/jump-to-date, per-meal and per-day totals. Add food by search (your foods + USDA, or **Search with AI** for estimated values when USDA is unavailable), recent foods, saved meals or manual entry; save custom foods; favorites; edit (rescale by servings or edit numbers); delete item or meal; copy a meal to another date; save a meal for reuse. Double submits are ignored (idempotency key). |
 | **AI food scanner** | Upload or take a photo (resized in the browser), choose the meal, add context, then see each item separately with portion, grams, kcal, macros, confidence, cooking method and uncertainty notes. Edit, exclude or add rows, then save. The server re-validates everything and recalculates totals. |
 | **Dashboard** | Calorie ring, calories/protein/carbs/fat cards with remaining or **over** amounts (never a negative "remaining"), macro bars, a "what's left today" helper, a meal summary with quick-add and quick-scan per meal, and quick actions. |
 | **Progress** | Chart.js: daily calories vs goal, protein vs goal, macro distribution, weight trend. Ranges of 7/30/90 days or custom. Weekly averages, goal adherence, weight log with optional body fat %. Unlogged days are gaps, not zeros. |
@@ -46,9 +46,9 @@ It's built for a few people with separate accounts, running on near-zero-cost ho
 | Without… | You still get |
 |---|---|
 | `AI_API_KEY` / `OLLAMA_BASE_URL` | Everything except photo analysis. The scanner page shows setup instructions and links to manual entry. |
-| `USDA_API_KEY` | Search over your own saved foods, manual entry, custom foods, recent foods and saved meals. |
+| `USDA_API_KEY` | Search over your own saved foods, **Search with AI** (if an AI key is set), manual entry, custom foods, recent foods and saved meals. |
 | `EMAIL_*` (local dev) | Confirmation/reset emails are written to the **server console log** so you can click the link. |
-| `EMAIL_*` (production) | Only if you set `Auth__RequireConfirmedEmail=false`. Otherwise startup fails with a clear message. Password reset emails are not sent in that mode. |
+| `EMAIL_*` (production) | Sign-up and login work. Password-reset emails aren't sent, and you can't turn on `Auth__RequireConfirmedEmail` (startup fails with a clear message). |
 
 The only setting you can't skip is `ConnectionStrings__DefaultConnection`.
 
@@ -137,8 +137,8 @@ All settings are environment variables (ASP.NET Core also reads them from user s
 | `AI_TIMEOUT_SECONDS` | no | Default 60. |
 | `AI_SCANS_PER_MINUTE` | no | Per-user rate limit, default 6. |
 | `USDA_API_KEY` | no | Enables USDA search. |
-| `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS` | prod* | `resend` + API key + verified sender. *Unless `Auth__RequireConfirmedEmail=false`. |
-| `Auth__RequireConfirmedEmail` | no | Default `true`. |
+| `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS` | no* | `resend` + API key + verified sender. *Required if `Auth__RequireConfirmedEmail=true`; needed for password-reset emails. |
+| `Auth__RequireConfirmedEmail` | no | Default `false`: new accounts are signed in right after registering. Set `true` to require clicking an emailed link first. |
 | `Auth__RegistrationEnabled` | no | Default `true`. Set `false` once your accounts exist so strangers can't sign up (and use your AI quota). |
 | `AUTH_POSTS_PER_MINUTE` | no | Per-IP limit for login/register/reset posts, default 10. |
 | `Database__MigrateOnStartup` | no | `true` only in Development. Keep it `false` in production (see [migrations](#database-migrations)). |
@@ -182,6 +182,10 @@ Search results show nutrients **per 100 g**. When you add one, the server fetche
 
 ---
 
+### Search with AI (no database)
+
+When an AI provider is configured, the *Add food* search box has a **Search with AI** button. It sends only the search text (for example `chicken biryani` or `200 g cooked rice`) to the AI. You get up to 5 matching foods with a typical portion, grams, calories and macros, and a confidence score. They're labelled **AI** in the diary, and you choose the number of servings before adding. The values are estimates, not database lookups, so use this when USDA is down or has no match. It uses the same per-user rate limit as photo scans.
+
 ## Email setup
 
 Render's free web services **block outbound SMTP ports** (25/465/587), so the app sends email through **Resend's HTTPS API**.
@@ -189,7 +193,7 @@ Render's free web services **block outbound SMTP ports** (25/465/587), so the ap
 1. Create a [Resend](https://resend.com) account (free plan: 3,000 emails/month, 100/day).
 2. Verify a sending domain (or use their test sender while you try it out; it can only send to your own address).
 3. Set `EMAIL_PROVIDER=resend`, `EMAIL_API_KEY=re_…`, `EMAIL_FROM_ADDRESS="NutriTrack <no-reply@yourdomain>"`.
-4. Register a new account on the deployed app and confirm the email arrives. **Until you've done that, treat email confirmation and password reset as not working.**
+4. Use *Forgot your password?* on the deployed app and check the email arrives. **Until you've done that, treat password reset (and email confirmation, if you turn it on) as not working.**
 
 ---
 
@@ -243,7 +247,7 @@ What's automatic and what's manual:
 
 ### 5. Smoke test
 
-Register two accounts → confirm both emails → log in as A, log a meal → log in as B and check A's meal isn't visible → restart the Render service (Manual Deploy → Restart) and check A's data and login are still there.
+Register two accounts → log in as A, log a meal → log in as B and check A's meal isn't visible → restart the Render service (Manual Deploy → Restart) and check A's data and login are still there.
 
 ### Moving to paid or other hosting later
 
@@ -306,7 +310,7 @@ Use a `pg_dump` version ≥ the server's major version (17).
 
 ## Security notes
 
-- Identity with framework password hashing. Minimum 10-character passwords. Lockout after 5 failed logins for 15 minutes. Email confirmation. Login errors don't reveal whether an account exists.
+- Identity with framework password hashing. Minimum 10-character passwords. Lockout after 5 failed logins for 15 minutes. Optional email confirmation (`Auth__RequireConfirmedEmail`). Login errors don't reveal whether an account exists.
 - Auth cookie: `HttpOnly`, `Secure` (production), `SameSite=Lax`, 14-day sliding expiry.
 - Global "logged in" fallback policy: every page is private unless explicitly `[AllowAnonymous]` (landing, privacy, error, health, Identity login/register pages).
 - Antiforgery validation on every MVC POST (`AutoValidateAntiforgeryToken`).
@@ -352,7 +356,7 @@ dotnet test
 4. ☐ **Render:** New → Blueprint → this repo (free Docker web service from `render.yaml`).
 5. ☐ **Environment variables in Render:** `ConnectionStrings__DefaultConnection`, `AI_API_KEY`, `USDA_API_KEY`, `EMAIL_API_KEY`, `EMAIL_FROM_ADDRESS` (others have defaults).
 6. ☐ **Migrations:** Actions → Migrate database → `migrate` (or `dotnet ef database update`), then check `/health/ready` returns `Healthy`.
-7. ☐ **AI & email:** Gemini key from AI Studio, Resend domain verified, then test-register to confirm the email arrives and a photo scan works.
+7. ☐ **AI & email:** Gemini key from AI Studio, Resend domain verified, then test a password-reset email and a photo scan.
 8. ☐ **Auth & isolation:** create both personal accounts, check each sees only their own data, then set `Auth__RegistrationEnabled=false`.
 9. ☐ **Public URL:** log a meal, restart the service, and confirm the data and login persist.
 10. ☐ **Quotas understood:** Render sleeps after 15 min, Neon suspends after 5 min, Gemini free tier is rate-limited and may use content for training, Resend 100/day, and you have a weekly `pg_dump` plan.

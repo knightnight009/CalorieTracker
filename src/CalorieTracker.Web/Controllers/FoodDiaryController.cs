@@ -2,8 +2,10 @@ using CalorieTracker.Web.Data;
 using CalorieTracker.Web.Infrastructure;
 using CalorieTracker.Web.Models;
 using CalorieTracker.Web.Services;
+using CalorieTracker.Web.Services.Ai;
 using CalorieTracker.Web.ViewModels;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace CalorieTracker.Web.Controllers;
@@ -11,7 +13,7 @@ namespace CalorieTracker.Web.Controllers;
 /// <summary>Every query here filters on the signed-in user's id; ids from the request only ever narrow that set.</summary>
 public class FoodDiaryController(
     ApplicationDbContext db, IDashboardService dashboard, INutritionPlanService plans,
-    INutritionCalculatorService calc, IFoodNutritionService usda, TimeProvider clock, ILogger<FoodDiaryController> log) : Controller
+    INutritionCalculatorService calc, IFoodNutritionService usda, IFoodVisionService ai, TimeProvider clock, ILogger<FoodDiaryController> log) : Controller
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -40,11 +42,14 @@ public class FoodDiaryController(
     // ---------- Adding food ----------
 
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public async Task<IActionResult> Add(DateOnly? date, MealType meal, string? q, string? tab, CancellationToken ct)
+    public async Task<IActionResult> Add(DateOnly? date, MealType meal, string? q, string? tab, CancellationToken ct) =>
+        View(nameof(Add), await BuildAddAsync(date, meal, q, tab, searchUsda: true, ct));
+
+    private async Task<AddFoodViewModel> BuildAddAsync(DateOnly? date, MealType meal, string? q, string? tab, bool searchUsda, CancellationToken ct)
     {
         var userId = this.UserId();
         var day = date ?? plans.Today(await db.UserProfiles.AsNoTracking().SingleOrDefaultAsync(p => p.UserId == userId, ct));
-        var vm = new AddFoodViewModel { Date = day, MealType = meal, Query = q?.Trim(), Tab = tab ?? "search", UsdaConfigured = usda.IsConfigured };
+        var vm = new AddFoodViewModel { Date = day, MealType = meal, Query = q?.Trim(), Tab = tab ?? "search", UsdaConfigured = usda.IsConfigured, AiConfigured = ai.IsConfigured };
         vm.Manual = new ManualFoodInput { Date = day, MealType = meal, ClientRequestId = vm.ClientRequestId };
 
         var foods = db.Foods.AsNoTracking().Where(f => f.UserId == userId);
@@ -52,7 +57,7 @@ public class FoodDiaryController(
         {
             var pattern = $"%{EscapeLike(vm.Query)}%";
             foods = foods.Where(f => EF.Functions.ILike(f.Name, pattern, "\\") || (f.Brand != null && EF.Functions.ILike(f.Brand, pattern, "\\")));
-            if (usda.IsConfigured)
+            if (searchUsda && usda.IsConfigured)
             {
                 try { vm.UsdaResults = (await usda.SearchAsync(vm.Query, ct)).ToList(); }
                 catch (FoodDatabaseUnavailableException) { vm.UsdaError = "The USDA database couldn't be reached. Your own foods and manual entry still work."; }
@@ -64,7 +69,50 @@ public class FoodDiaryController(
             .OrderByDescending(i => i.Id).Take(100).ToListAsync(ct);
         vm.RecentItems = recent.DistinctBy(i => i.FoodNameSnapshot.ToLowerInvariant()).Take(15).ToList();
         vm.SavedMeals = await db.SavedMeals.AsNoTracking().Include(s => s.Items).Where(s => s.UserId == userId).OrderBy(s => s.Name).ToListAsync(ct);
-        return View(vm);
+        return vm;
+    }
+
+    /// <summary>Search results estimated by the AI provider instead of a database. Rate-limited like photo scans.</summary>
+    [EnableRateLimiting(RateLimits.Ai), ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> AiSearch(DateOnly? date, MealType meal, string? q, CancellationToken ct)
+    {
+        var vm = await BuildAddAsync(date, meal, q, "search", searchUsda: false, ct);
+        if (string.IsNullOrWhiteSpace(vm.Query) || !ai.IsConfigured) return View(nameof(Add), vm);
+        try
+        {
+            var outcome = await ai.EstimateFromTextAsync(vm.Query, ct);
+            vm.AiResults = outcome.Result.Items.ToList();
+            vm.AiProvider = outcome.Provider;
+        }
+        catch (FoodVisionException ex)
+        {
+            log.LogWarning("AI food search failed: {Kind}", ex.Kind);
+            vm.AiError = ex.Message;
+        }
+        vm.AiSearched = true;
+        return View(nameof(Add), vm);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> AddAiEstimate(AddAiEstimateInput input, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return await ReshowAdd(input, "search", ct);
+        // Values come from an AI estimate the user saw; they're validated like manual entry and labelled as estimates.
+        var n = calc.Scale(new Food
+        {
+            Calories = input.Nutrients.Calories, ProteinGrams = input.Nutrients.ProteinGrams, CarbohydratesGrams = input.Nutrients.CarbohydratesGrams,
+            FatGrams = input.Nutrients.FatGrams, FiberGrams = input.Nutrients.FiberGrams, SugarGrams = input.Nutrients.SugarGrams,
+        }, 1, input.Quantity);
+        var item = new FoodDiaryItem
+        {
+            FoodNameSnapshot = input.Name.Trim(), Quantity = input.Quantity,
+            PortionDescription = input.Quantity == 1 ? input.PortionDescription?.Trim() : $"{input.Quantity:0.##} × {input.PortionDescription?.Trim()}",
+            WeightGrams = input.WeightGrams * input.Quantity,
+            Calories = n.Calories, ProteinGrams = n.ProteinGrams, CarbohydratesGrams = n.CarbohydratesGrams, FatGrams = n.FatGrams,
+            FiberGrams = input.Nutrients.FiberGrams is null ? null : n.FiberGrams, SugarGrams = input.Nutrients.SugarGrams is null ? null : n.SugarGrams,
+            NutritionSource = NutritionSource.AiEstimate, IsAiEstimated = true, AiConfidence = input.Confidence,
+        };
+        return await CreateEntry(input, [item], null, $"Added {item.FoodNameSnapshot} (AI estimate).", ct);
     }
 
     [HttpPost]
