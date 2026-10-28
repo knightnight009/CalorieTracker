@@ -66,7 +66,7 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
 public class GeminiFoodVisionProvider(HttpClient http, AiOptions options, ILogger<GeminiFoodVisionProvider> log) : IFoodVisionProvider
 {
     public string Name => "gemini";
-    public string Model => string.IsNullOrWhiteSpace(options.Model) ? "gemini-2.5-flash" : options.Model;
+    public string Model => string.IsNullOrWhiteSpace(options.Model) ? "gemini-3.5-flash" : options.Model;
     public bool IsConfigured => !string.IsNullOrWhiteSpace(options.ApiKey);
 
     public async Task<FoodAnalysisResult> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct)
