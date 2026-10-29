@@ -172,6 +172,23 @@
       document.getElementById('sum-cal').textContent = Math.round(sums.cal);
       ['p', 'c', 'f'].forEach((k) => { document.getElementById('sum-' + k).textContent = sums[k].toFixed(1).replace(/\.0$/, ''); });
     };
+    // Changing a row's grams scales that row's kcal and macros. The baseline is taken when the grams field
+    // gets focus, so numbers the user already edited by hand are scaled from, not overwritten with AI values.
+    const nutrientNames = ['Calories', 'ProteinGrams', 'CarbohydratesGrams', 'FatGrams', 'FiberGrams', 'SugarGrams'];
+    const rowInputs = (tr) => nutrientNames.map((n) => tr.querySelector(`[name$=".${n}"]`)).filter(Boolean);
+    body.addEventListener('focusin', (e) => {
+      if (!e.target.matches('[name$=".WeightGrams"]')) return;
+      const tr = e.target.closest('tr');
+      tr.dataset.w0 = e.target.value;
+      rowInputs(tr).forEach((i) => { i.dataset.base = i.value; });
+    });
+    body.addEventListener('input', (e) => {
+      if (!e.target.matches('[name$=".WeightGrams"]')) return;
+      const tr = e.target.closest('tr');
+      const w0 = num(tr.dataset.w0), w = num(e.target.value);
+      if (w0 <= 0 || w <= 0) return; // no starting weight to scale from
+      rowInputs(tr).forEach((i) => { if (i.dataset.base) i.value = +(num(i.dataset.base) * w / w0).toFixed(1); });
+    });
     review.addEventListener('input', total);
     review.addEventListener('change', total);
     document.getElementById('addRow').addEventListener('click', () => {
