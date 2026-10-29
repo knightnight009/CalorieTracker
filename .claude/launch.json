@@ -4,8 +4,30 @@
     {
       "name": "web",
       "runtimeExecutable": "/Users/lmbb/.dotnet/dotnet",
-      "runtimeArgs": ["run", "--project", "src/CalorieTracker.Web", "--launch-profile", "http"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/CalorieTracker.Web",
+        "--launch-profile",
+        "http"
+      ],
       "port": 5149
+    },
+    {
+      "name": "web-5150",
+      "runtimeExecutable": "/Users/lmbb/.dotnet/dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/CalorieTracker.Web",
+        "--no-launch-profile",
+        "--",
+        "--urls",
+        "http://localhost:5150",
+        "--environment",
+        "Development"
+      ],
+      "port": 5150
     }
   ]
 }

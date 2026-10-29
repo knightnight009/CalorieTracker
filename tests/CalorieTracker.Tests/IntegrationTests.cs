@@ -264,6 +264,32 @@ public class IntegrationTests(AppFactory app) : IClassFixture<AppFactory>
         item = await app.WithDbAsync(db => db.FoodDiaryItems.AsNoTracking().SingleAsync(i => i.Id == seeded.ItemId));
         Assert.Equal(600m, item.Calories);
         Assert.Equal(40m, item.ProteinGrams);
+
+        // Give it a weight (no rescale: there was none to compare with), then change only the weight.
+        await AppFactory.PostFormAsync(client, $"/FoodDiary/EditItem/{seeded.ItemId}", "/FoodDiary/EditItem", new()
+        {
+            ["Id"] = seeded.ItemId.ToString(), ["Name"] = "Granola", ["Quantity"] = "2", ["WeightGrams"] = "100", ["RescaleFromQuantity"] = "true", ["MealType"] = "Lunch",
+        });
+        Assert.Equal(600m, (await app.WithDbAsync(db => db.FoodDiaryItems.AsNoTracking().SingleAsync(i => i.Id == seeded.ItemId))).Calories);
+
+        await AppFactory.PostFormAsync(client, $"/FoodDiary/EditItem/{seeded.ItemId}", "/FoodDiary/EditItem", new()
+        {
+            ["Id"] = seeded.ItemId.ToString(), ["Name"] = "Granola", ["Quantity"] = "2", ["WeightGrams"] = "150", ["RescaleFromQuantity"] = "true", ["MealType"] = "Lunch",
+        });
+        item = await app.WithDbAsync(db => db.FoodDiaryItems.AsNoTracking().SingleAsync(i => i.Id == seeded.ItemId));
+        Assert.Equal(900m, item.Calories);   // 600 × 150/100
+        Assert.Equal(60m, item.ProteinGrams);
+        Assert.Equal(3m, item.Quantity);     // servings follow the weight
+        Assert.Equal(150m, item.WeightGrams);
+
+        // Changing servings moves the weight along.
+        await AppFactory.PostFormAsync(client, $"/FoodDiary/EditItem/{seeded.ItemId}", "/FoodDiary/EditItem", new()
+        {
+            ["Id"] = seeded.ItemId.ToString(), ["Name"] = "Granola", ["Quantity"] = "1", ["WeightGrams"] = "150", ["RescaleFromQuantity"] = "true", ["MealType"] = "Lunch",
+        });
+        item = await app.WithDbAsync(db => db.FoodDiaryItems.AsNoTracking().SingleAsync(i => i.Id == seeded.ItemId));
+        Assert.Equal(300m, item.Calories);
+        Assert.Equal(50m, item.WeightGrams);
     }
 
     [Fact]

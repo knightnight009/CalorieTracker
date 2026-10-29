@@ -22,8 +22,9 @@ services:
         value: gemini-3.5-flash
       - key: USDA_API_KEY
         sync: false
+      # Optional: set to "resend" only together with EMAIL_API_KEY and EMAIL_FROM_ADDRESS, or startup fails.
       - key: EMAIL_PROVIDER
-        value: resend
+        sync: false
       - key: EMAIL_API_KEY
         sync: false
       - key: EMAIL_FROM_ADDRESS

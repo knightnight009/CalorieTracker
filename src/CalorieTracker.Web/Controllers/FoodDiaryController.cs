@@ -293,14 +293,18 @@ public class FoodDiaryController(
 
         if (input.RescaleFromQuantity)
         {
-            if (input.Quantity != item.Quantity)
+            // A changed weight drives the rescale (servings follow); otherwise a changed servings count does (weight follows).
+            var oldWeight = item.WeightGrams;
+            var weightChanged = oldWeight is > 0 && input.WeightGrams is > 0 && input.WeightGrams != Math.Round(oldWeight.Value, 1);
+            var newQuantity = weightChanged ? item.Quantity * input.WeightGrams!.Value / oldWeight!.Value : input.Quantity;
+            if (newQuantity != item.Quantity)
             {
-                var n = calc.Scale(item, item.Quantity, input.Quantity);
+                var n = calc.Scale(item, item.Quantity, newQuantity);
                 item.Calories = n.Calories; item.ProteinGrams = n.ProteinGrams; item.CarbohydratesGrams = n.CarbohydratesGrams; item.FatGrams = n.FatGrams;
                 if (item.FiberGrams is not null) item.FiberGrams = n.FiberGrams;
                 if (item.SugarGrams is not null) item.SugarGrams = n.SugarGrams;
-                if (item.WeightGrams is not null && input.WeightGrams == Math.Round(item.WeightGrams.Value, 1))
-                    input.WeightGrams = item.WeightGrams * input.Quantity / item.Quantity;
+                if (!weightChanged && oldWeight is not null) input.WeightGrams = oldWeight * newQuantity / item.Quantity;
+                input.Quantity = newQuantity;
             }
         }
         else

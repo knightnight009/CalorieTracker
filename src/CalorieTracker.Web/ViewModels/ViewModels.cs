@@ -248,7 +248,7 @@ public class EditDiaryItemInput
     [StringLength(100), Display(Name = "Portion")] public string? PortionDescription { get; set; }
     [Range(0.1, 5000), Display(Name = "Weight (g)")] public decimal? WeightGrams { get; set; }
     /// <summary>When true the server rescales the logged nutrition by the quantity change and ignores the nutrient fields.</summary>
-    [Display(Name = "Recalculate nutrition from the new quantity")] public bool RescaleFromQuantity { get; set; } = true;
+    [Display(Name = "Recalculate nutrition from servings or weight")] public bool RescaleFromQuantity { get; set; } = true;
     public NutrientFields Nutrients { get; set; } = new();
     public MealType MealType { get; set; }
 }

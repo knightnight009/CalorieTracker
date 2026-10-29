@@ -75,17 +75,29 @@
   if (editForm) {
     const toggle = document.getElementById('rescaleToggle');
     const qty = editForm.querySelector('[name=Quantity]');
+    const weight = editForm.querySelector('[name=WeightGrams]');
     const fields = $$('[data-nutrient]', editForm);
-    const original = num(qty.dataset.original);
+    const qty0 = num(qty.dataset.original), weight0 = num(weight.value);
     fields.forEach((f) => { f.dataset.base = f.value; });
-    const sync = () => {
+    // Mirrors the server: editing weight scales by grams (servings follow); editing servings scales by servings (weight follows).
+    const sync = (source) => {
       fields.forEach((f) => { f.readOnly = toggle.checked; });
-      if (toggle.checked && original > 0) {
-        const factor = num(qty.value) / original;
-        fields.forEach((f) => { if (f.dataset.base !== '') f.value = (num(f.dataset.base) * factor).toFixed(1); });
+      if (!toggle.checked || qty0 <= 0) return;
+      let factor;
+      if (source === weight && weight0 > 0 && num(weight.value) > 0) {
+        factor = num(weight.value) / weight0;
+        qty.step = 'any'; qty.min = '0.01'; // grams can give fractional servings like 1.33
+        qty.value = +(qty0 * factor).toFixed(2);
+      } else {
+        factor = num(qty.value) / qty0;
+        if (source === qty && weight0 > 0) weight.value = +(weight0 * factor).toFixed(1);
       }
+      fields.forEach((f) => { if (f.dataset.base !== '') f.value = (num(f.dataset.base) * factor).toFixed(1); });
     };
-    toggle.addEventListener('change', sync); qty.addEventListener('input', sync); sync();
+    toggle.addEventListener('change', () => sync());
+    qty.addEventListener('input', () => sync(qty));
+    weight.addEventListener('input', () => sync(weight));
+    sync();
   }
 
   // ---- Manual entry: check calories vs macros ----

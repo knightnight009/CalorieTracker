@@ -22,7 +22,7 @@
             <div class="form-check form-switch mb-3">
                 <input asp-for="RescaleFromQuantity" class="form-check-input" role="switch" id="rescaleToggle" />
                 <label asp-for="RescaleFromQuantity" class="form-check-label" for="rescaleToggle"></label>
-                <div class="form-text">On: nutrition is scaled by the change in servings (the preview below updates as you type; the server recalculates when you save). Off: edit the numbers directly.</div>
+                <div class="form-text">On: change servings <em>or</em> weight and the nutrition scales to match (the preview updates as you type; the server recalculates when you save). Weight only rescales entries that already have a weight. Off: edit the numbers directly.</div>
             </div>
             <fieldset id="nutrientFields">
                 <legend class="visually-hidden">Nutrition</legend>
