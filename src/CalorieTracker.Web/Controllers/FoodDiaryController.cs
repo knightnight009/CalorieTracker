@@ -208,6 +208,49 @@ public class FoodDiaryController(
         return await CreateEntry(input, [CopyItem(src)], null, $"Added {src.FoodNameSnapshot}.", ct);
     }
 
+    /// <summary>Copies a past entry or saved meal into the chosen meal, scaled by the portion factor the dashboard suggested.</summary>
+    [HttpPost]
+    public async Task<IActionResult> AddRecentMeal(AddRecentMealInput input, CancellationToken ct)
+    {
+        if (!ModelState.IsValid || (input.EntryId is null) == (input.SavedMealId is null)) return BadRequest();
+        var userId = this.UserId();
+        string name;
+        IEnumerable<ItemCopy> source;
+        if (input.EntryId is { } entryId)
+        {
+            var e = await db.FoodDiaryEntries.AsNoTracking().Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == entryId && x.UserId == userId, ct);
+            if (e is null) return NotFound();
+            name = e.Notes ?? string.Join(", ", e.Items.Select(i => i.FoodNameSnapshot).Take(3));
+            source = e.Items.Select(i => new ItemCopy(i, i.FoodId, i.FoodNameSnapshot, i.Quantity, i.PortionDescription, i.WeightGrams, i.NutritionSource, i.IsAiEstimated, i.AiConfidence));
+        }
+        else
+        {
+            var m = await db.SavedMeals.AsNoTracking().Include(x => x.Items).SingleOrDefaultAsync(x => x.Id == input.SavedMealId && x.UserId == userId, ct);
+            if (m is null) return NotFound();
+            name = m.Name;
+            source = m.Items.Select(i => new ItemCopy(i, i.FoodId, i.FoodNameSnapshot, i.Quantity, i.PortionDescription, i.WeightGrams, i.NutritionSource, i.IsAiEstimated, null));
+        }
+
+        var f = input.Factor;
+        var items = source.Select(s =>
+        {
+            var n = calc.Scale(s.Nutrients, 1, f);
+            return new FoodDiaryItem
+            {
+                FoodId = s.FoodId, FoodNameSnapshot = s.Name, Quantity = s.Quantity * f,
+                PortionDescription = f == 1 ? s.Portion : $"{f:0.#}× {s.Portion}".Trim(), WeightGrams = s.WeightGrams * f,
+                Calories = n.Calories, ProteinGrams = n.ProteinGrams, CarbohydratesGrams = n.CarbohydratesGrams, FatGrams = n.FatGrams,
+                FiberGrams = s.Nutrients.FiberGrams is null ? null : n.FiberGrams, SugarGrams = s.Nutrients.SugarGrams is null ? null : n.SugarGrams,
+                NutritionSource = s.Source, IsAiEstimated = s.IsAi, AiConfidence = s.Confidence,
+            };
+        }).ToList();
+        var label = f == 1 ? name : $"{name} ({f:0.#}×)";
+        return await CreateEntry(input, items, label, $"Added \"{label}\" to {input.MealType.ToString().ToLowerInvariant()}.", ct);
+    }
+
+    private record ItemCopy(INutrients Nutrients, int? FoodId, string Name, decimal Quantity, string? Portion, decimal? WeightGrams,
+        NutritionSource Source, bool IsAi, decimal? Confidence);
+
     [HttpPost]
     public async Task<IActionResult> AddSavedMeal(AddSavedMealInput input, CancellationToken ct)
     {

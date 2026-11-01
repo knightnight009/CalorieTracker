@@ -34,6 +34,7 @@ public class DashboardViewModel
     public string? IdeasProvider { get; set; }
     /// <summary>This meal's share of what's left (see DashboardService.MealBudget); set once ideas were requested.</summary>
     public (decimal Calories, decimal Protein, int MealsLeft)? IdeasBudget { get; set; }
+    public List<RecentMealSuggestion> RecentMeals { get; set; } = [];
 }
 
 public record MealIdeaView(MealIdea Idea, bool Fits, string? Note);
@@ -222,6 +223,14 @@ public class AddAiEstimateInput : AddToDiaryInput
 public class AddRecentInput : AddToDiaryInput
 {
     public int DiaryItemId { get; set; }
+}
+
+/// <summary>Re-logs a past diary entry or saved meal, optionally at a different portion size.</summary>
+public class AddRecentMealInput : AddToDiaryInput
+{
+    public int? EntryId { get; set; }
+    public int? SavedMealId { get; set; }
+    [Range(0.5, 2)] public decimal Factor { get; set; } = 1;
 }
 
 public class AddSavedMealInput : AddToDiaryInput

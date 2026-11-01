@@ -18,46 +18,107 @@
         </span>
     </div>
     <div class="card-body">
-        @if (!Model.AiConfigured)
-        {
-            <p class="text-muted mb-0">Meal ideas use the AI provider. Set <code>AI_API_KEY</code> on the server to turn them on.</p>
-        }
-        else
-        {
-            <form method="post" asp-action="MealIdeas" asp-fragment="meal-ideas" class="row g-2 align-items-end">
-                <div class="col-sm-3">
-                    <label for="ideaMeal" class="form-label small mb-1">Meal</label>
-                    <select id="ideaMeal" name="mealType" class="form-select">
-                        @foreach (var m in Enum.GetValues<MealType>())
-                        {
-                            <option value="@m" selected="@(m == Model.IdeasMealType)">@m</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-sm">
-                    <label for="ideaPrefs" class="form-label small mb-1">Preferences <span class="text-muted">(optional)</span></label>
-                    <input id="ideaPrefs" name="preferences" value="@Model.IdeasPreferences" maxlength="300" class="form-control" placeholder="No pork, under 20 minutes, have eggs and rice" />
-                </div>
-                <div class="col-sm-auto">
-                    <button class="btn btn-primary w-100" type="submit" data-once data-busy="Thinking…"><i class="bi bi-stars me-1" aria-hidden="true"></i>Suggest meals</button>
-                </div>
-            </form>
-
-            @if (Model.IdeasMessage is not null)
+        <form method="get" asp-action="Index" asp-fragment="meal-ideas" class="d-flex flex-wrap align-items-center gap-2">
+            <label for="ideaMeal" class="form-label small mb-0">Plan for</label>
+            <select id="ideaMeal" name="meal" class="form-select form-select-sm w-auto" data-autosubmit>
+                @foreach (var m in Enum.GetValues<MealType>())
+                {
+                    <option value="@m" selected="@(m == Model.IdeasMealType)">@m</option>
+                }
+            </select>
+            <noscript><button class="btn btn-sm btn-soft" type="submit">Show</button></noscript>
+            @if (Model.IdeasBudget is { } b)
             {
-                <div class="alert alert-info mt-3 mb-0" role="status">@Model.IdeasMessage</div>
+                <span class="small text-muted">
+                    Budget for this @mealName: <strong class="tabular">@b.Calories.ToString("#,0") kcal · @b.Protein.ToString("0") g protein</strong>
+                    @if (b.MealsLeft > 1) { <text>(what's left today, split across @b.MealsLeft meals)</text> }
+                </span>
             }
+        </form>
+
+        @if (Model.IdeasMessage is not null)
+        {
+            <div class="alert alert-info mt-3 mb-0" role="status">@Model.IdeasMessage</div>
+        }
+
+        @if (Model.IdeasBudget is not null)
+        {
+            <h3 class="h6 mt-3 mb-2"><i class="bi bi-clock-history me-1" aria-hidden="true"></i>From your recent meals <span class="small text-muted fw-normal">· instant, no AI</span></h3>
+            @if (Model.RecentMeals.Count == 0)
+            {
+                <p class="small text-muted mb-0">Nothing from the last 30 days fits this budget yet. As you log more meals, matches show up here.</p>
+            }
+            else
+            {
+                <div class="d-grid gap-2">
+                    @foreach (var r in Model.RecentMeals)
+                    {
+                        var scaled = r.Scaled;
+                        <form method="post" asp-controller="FoodDiary" asp-action="AddRecentMeal" class="meal-idea @(r.Fits ? "fits" : null)">
+                            <input type="hidden" name="Date" value="@d" />
+                            <input type="hidden" name="MealType" value="@Model.IdeasMealType" />
+                            <input type="hidden" name="ClientRequestId" value="@Guid.NewGuid()" />
+                            <input type="hidden" name="Factor" value="@r.Factor" />
+                            @if (r.Meal.EntryId is { } eid) { <input type="hidden" name="EntryId" value="@eid" /> }
+                            @if (r.Meal.SavedMealId is { } sid) { <input type="hidden" name="SavedMealId" value="@sid" /> }
+                            <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                                <div class="min-w-0">
+                                    <h4 class="h6 mb-0">@r.Meal.Name</h4>
+                                    <div class="small text-muted">@r.Meal.Source</div>
+                                </div>
+                                @if (!r.Fits)
+                                {
+                                    <span class="over-badge"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>@r.Note</span>
+                                }
+                                else if (r.Factor == 1)
+                                {
+                                    <span class="badge rounded-pill text-bg-success"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Fits both</span>
+                                }
+                                else
+                                {
+                                    <span class="badge rounded-pill text-bg-success"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Fits at @r.Factor.ToString("0.#")×</span>
+                                }
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-2">
+                                <span class="d-inline-flex flex-wrap align-items-center gap-1">
+                                    <partial name="_NutrientChips" model="scaled" />
+                                    @if (r.Factor != 1)
+                                    {
+                                        <span class="small text-muted">(@r.Meal.Totals.Calories.ToString("#,0") kcal · @r.Meal.Totals.ProteinGrams.ToString("0") g as logged)</span>
+                                    }
+                                </span>
+                                <button class="btn btn-sm @(r.Fits ? "btn-primary" : "btn-soft")" type="submit" data-once>@(r.Factor == 1 ? "Add again" : $"Add {r.Factor:0.#}×")</button>
+                            </div>
+                        </form>
+                    }
+                </div>
+            }
+
+            <div class="border-top mt-3 pt-3">
+                @if (!Model.AiConfigured)
+                {
+                    <p class="small text-muted mb-0">New AI meal ideas need the AI provider. Set <code>AI_API_KEY</code> on the server to turn them on.</p>
+                }
+                else
+                {
+                    <form method="post" asp-action="MealIdeas" asp-fragment="meal-ideas" class="row g-2 align-items-end">
+                        <input type="hidden" name="mealType" value="@Model.IdeasMealType" />
+                        <div class="col-sm">
+                            <label for="ideaPrefs" class="form-label small mb-1">Want something new? Preferences <span class="text-muted">(optional)</span></label>
+                            <input id="ideaPrefs" name="preferences" value="@Model.IdeasPreferences" maxlength="300" class="form-control" placeholder="No pork, under 20 minutes, have eggs and rice" />
+                        </div>
+                        <div class="col-sm-auto">
+                            <button class="btn btn-outline-primary w-100" type="submit" data-once data-busy="Thinking…"><i class="bi bi-stars me-1" aria-hidden="true"></i>Suggest new meals with AI</button>
+                        </div>
+                    </form>
+                }
+            </div>
+        }
 
             @if (Model.MealIdeas.Count > 0)
             {
-                @if (Model.IdeasBudget is { } b)
-                {
-                    <p class="small text-muted mt-3 mb-0">
-                        Budget for this @mealName: <strong class="tabular">@b.Calories.ToString("#,0") kcal · @b.Protein.ToString("0") g protein</strong>
-                        @if (b.MealsLeft > 1) { <text>(what's left today, split across @b.MealsLeft meals)</text> }
-                    </p>
-                }
-                <div class="d-grid gap-2 mt-2">
+                <h3 class="h6 mt-3 mb-2"><i class="bi bi-stars me-1" aria-hidden="true"></i>New ideas from AI</h3>
+                <div class="d-grid gap-2">
                     @for (var k = 0; k < Model.MealIdeas.Count; k++)
                     {
                         var view = Model.MealIdeas[k];
@@ -106,6 +167,5 @@
                 </div>
                 <p class="disclaimer mt-2 mb-0"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>Ideas from @Model.IdeasProvider with estimated values. Totals are added up by the app. Use Review to change anything before it's saved.</p>
             }
-        }
     </div>
 </section>

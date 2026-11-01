@@ -3,6 +3,9 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
+  // Selects marked data-autosubmit reload their (GET) form when changed.
+  $$('select[data-autosubmit]').forEach((sel) => sel.addEventListener('change', () => sel.form.submit()));
+
   // Confirm destructive actions.
   $$('form[data-confirm]').forEach((f) => f.addEventListener('submit', (e) => { if (!confirm(f.dataset.confirm)) e.preventDefault(); }));
 

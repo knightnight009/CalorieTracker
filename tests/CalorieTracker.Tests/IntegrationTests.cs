@@ -499,6 +499,61 @@ public class IntegrationTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
+    public async Task RecentMeals_ShowOnDashboard_AndAddAgainScalesOwnMealsOnly()
+    {
+        var email = Email("recent");
+        var userId = await app.CreateUserAsync(email);
+        var otherId = await app.CreateUserAsync(Email("recent-other"));
+        var client = await app.LoginAsync(email);
+        await AppFactory.PostFormAsync(client, "/Profile/Setup", "/Profile/Setup", new()
+        {
+            ["SexForBmrCalculation"] = "Male", ["DateOfBirth"] = "1990-01-01", ["CurrentWeight"] = "80", ["PreferredWeightUnit"] = "Kg",
+            ["HeightUnit"] = "Cm", ["HeightCm"] = "180", ["ActivityLevel"] = "ModeratelyActive", ["WorkoutDaysPerWeek"] = "3",
+            ["AverageWorkoutDurationMinutes"] = "45", ["WorkoutIntensity"] = "Moderate", ["PrimaryGoal"] = "Maintain",
+            ["PreferredCalorieDeficitPercentage"] = "15", ["PreferredCalorieSurplusPercentage"] = "10", ["ProteinTargetGramsPerKg"] = "1.8",
+            ["FatTargetPercentage"] = "30", ["TimeZoneId"] = "UTC",
+        });
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var (mine, saved, theirs) = await app.WithDbAsync(async db =>
+        {
+            FoodDiaryEntry Entry(string uid, string name, decimal kcal, decimal p) => new()
+            {
+                UserId = uid, DiaryDate = today.AddDays(-1), MealType = MealType.Dinner, Notes = name, CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow,
+                Items = [new FoodDiaryItem { FoodNameSnapshot = name + " food", Quantity = 1, PortionDescription = "1 plate", WeightGrams = 300, Calories = kcal, ProteinGrams = p, CarbohydratesGrams = 50, FatGrams = 10, NutritionSource = NutritionSource.Manual }],
+            };
+            var a = Entry(userId, "Yesterday's chicken bowl", 600, 50);
+            var b = Entry(otherId, "Someone else's dinner", 600, 50);
+            var m = new SavedMeal { UserId = userId, Name = "Usual oats", CreatedAtUtc = DateTime.UtcNow, Items = [new SavedMealItem { FoodNameSnapshot = "Oats", Quantity = 1, Calories = 300, ProteinGrams = 20, CarbohydratesGrams = 40, FatGrams = 6, NutritionSource = NutritionSource.Manual }] };
+            db.AddRange(a, b, m);
+            await db.SaveChangesAsync();
+            return (a.Id, m.Id, b.Id);
+        });
+
+        var dash = await client.GetStringAsync("/Dashboard?meal=Dinner");
+        Assert.Contains("From your recent meals", dash);
+        Assert.Contains("Yesterday&#x27;s chicken bowl", dash);
+        Assert.DoesNotContain("Someone else", dash);
+
+        Dictionary<string, string> Form(string idField, int id, string factor) => new()
+        {
+            ["Date"] = today.ToString("yyyy-MM-dd"), ["MealType"] = "Dinner", ["ClientRequestId"] = Guid.NewGuid().ToString(), [idField] = id.ToString(), ["Factor"] = factor,
+        };
+        Assert.Equal(HttpStatusCode.Redirect, (await AppFactory.PostFormAsync(client, "/Dashboard", "/FoodDiary/AddRecentMeal", Form("EntryId", mine, "1.5"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await AppFactory.PostFormAsync(client, "/Dashboard", "/FoodDiary/AddRecentMeal", Form("SavedMealId", saved, "1"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await AppFactory.PostFormAsync(client, "/Dashboard", "/FoodDiary/AddRecentMeal", Form("EntryId", theirs, "1"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await AppFactory.PostFormAsync(client, "/Dashboard", "/FoodDiary/AddRecentMeal", Form("EntryId", mine, "3"))).StatusCode);
+
+        var added = await app.WithDbAsync(db => db.FoodDiaryEntries.Include(e => e.Items).Where(e => e.UserId == userId && e.DiaryDate == today).OrderBy(e => e.Id).ToListAsync());
+        Assert.Equal(2, added.Count);
+        Assert.Equal("Yesterday's chicken bowl (1.5×)", added[0].Notes);
+        Assert.Equal(900m, added[0].Items.Single().Calories);
+        Assert.Equal(450m, added[0].Items.Single().WeightGrams);
+        Assert.Equal("1.5× 1 plate", added[0].Items.Single().PortionDescription);
+        Assert.Equal("Usual oats", added[1].Notes);
+        Assert.Equal(300m, added[1].Items.Single().Calories);
+    }
+
+    [Fact]
     public async Task Errors_DoNotLeakConfiguration()
     {
         var html = await app.NewClient().GetStringAsync("/Home/Error");

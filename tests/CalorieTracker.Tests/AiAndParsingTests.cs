@@ -167,6 +167,38 @@ public class MealIdeasTests
         Assert.Equal(120m / shares, b.Protein);
     }
 
+    private static RecentMealCandidate Past(string name, decimal kcal, decimal protein) =>
+        new(name, "Logged", 1, null, new NutrientTotals(kcal, protein, 0, 0));
+
+    [Fact]
+    public void RecentMeals_FitAsLoggedFirst_ThenScaled_ThenCloseMisses()
+    {
+        var ranked = DashboardService.RankRecentMeals(
+        [
+            Past("Small breakfast", 400, 28),   // short as logged, fits at 1.5× (600 kcal, 42 g)
+            Past("Chicken rice bowl", 590, 45), // fits as logged
+            Past("Salmon dinner", 680, 46),     // 60 kcal over at every portion that keeps protein: near miss
+            Past("Pizza night", 2000, 20),      // nowhere close: left out
+        ], budgetKcal: 620, budgetProtein: 44);
+
+        Assert.Equal(["Chicken rice bowl", "Small breakfast", "Salmon dinner"], ranked.Select(r => r.Meal.Name));
+        Assert.Equal(1m, ranked[0].Factor);
+        Assert.True(ranked[1].Fits);
+        Assert.Equal(1.5m, ranked[1].Factor);
+        Assert.Equal(600m, ranked[1].Scaled.Calories);
+        Assert.False(ranked[2].Fits);
+        Assert.Equal("60 kcal over", ranked[2].Note);
+    }
+
+    [Fact]
+    public void RecentMeals_ShrinkBigMeals_AndCapAtThree()
+    {
+        var ranked = DashboardService.RankRecentMeals(
+            Enumerable.Range(1, 6).Select(i => Past($"Big {i}", 1100 + i, 90)), budgetKcal: 600, budgetProtein: 40);
+        Assert.Equal(3, ranked.Count);
+        Assert.All(ranked, r => { Assert.True(r.Fits); Assert.Equal(0.5m, r.Factor); });
+    }
+
     [Fact]
     public void DefaultMeal_IsFirstUnloggedMainMeal_ElseSnack()
     {
