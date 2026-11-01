@@ -24,7 +24,19 @@ public class DashboardViewModel
     public decimal? LatestWeightKg { get; set; }
     public DateOnly? LatestWeightDate { get; set; }
     public WeightUnit WeightUnit { get; set; }
+
+    // Meal ideas card
+    public bool AiConfigured { get; set; }
+    public MealType IdeasMealType { get; set; }
+    [StringLength(300)] public string? IdeasPreferences { get; set; }
+    public List<MealIdeaView> MealIdeas { get; set; } = [];
+    public string? IdeasMessage { get; set; }
+    public string? IdeasProvider { get; set; }
+    /// <summary>This meal's share of what's left (see DashboardService.MealBudget); set once ideas were requested.</summary>
+    public (decimal Calories, decimal Protein, int MealsLeft)? IdeasBudget { get; set; }
 }
+
+public record MealIdeaView(MealIdea Idea, bool Fits, string? Note);
 
 // ---------- Profile ----------
 
@@ -304,6 +316,14 @@ public class ReviewItemInput
     [Range(0, 1000)] public decimal FatGrams { get; set; }
     [Range(0, 500)] public decimal? FiberGrams { get; set; }
     [Range(0, 1000)] public decimal? SugarGrams { get; set; }
+    /// <summary>Only used for meal ideas; scan confirmations take confidence from the stored scan.</summary>
+    [Range(0, 1)] public decimal? Confidence { get; set; }
+}
+
+public class AddMealIdeaInput : AddToDiaryInput
+{
+    [Required, StringLength(120)] public string MealName { get; set; } = "";
+    public List<ReviewItemInput> Items { get; set; } = [];
 }
 
 public class FoodAnalysisResultViewModel

@@ -1,5 +1,6 @@
 using CalorieTracker.Web.Data;
 using CalorieTracker.Web.Models;
+using CalorieTracker.Web.Services.Ai;
 using CalorieTracker.Web.ViewModels;
 using Microsoft.EntityFrameworkCore;
 
@@ -48,6 +49,7 @@ public class DashboardService(ApplicationDbContext db, INutritionPlanService pla
             LatestWeightDate = plan.LatestWeight?.Date,
             WeightUnit = plan.Profile.PreferredWeightUnit,
         };
+        vm.IdeasMealType = DefaultIdeaMeal(meals);
         if (targets is not null)
         {
             vm.Calories = calc.Remaining(targets.Calories, consumed.Calories);
@@ -57,6 +59,40 @@ public class DashboardService(ApplicationDbContext db, INutritionPlanService pla
             vm.Suggestions = GapSuggestions(vm.Calories, vm.Protein, vm.Carbs, vm.Fat);
         }
         return vm;
+    }
+
+    /// <summary>
+    /// Whether a suggested meal fits what's left: calories within the remaining budget (3% allowance for rounding)
+    /// and at least 90% of the remaining protein. Totals come from the meal's own items, never the AI's arithmetic.
+    /// </summary>
+    public static (bool Fits, string? Note) MealIdeaFit(MealIdea idea, RemainingAmount calories, RemainingAmount protein)
+    {
+        var notes = new List<string>();
+        var over = idea.TotalCalories - calories.Remaining;
+        if (over > calories.Remaining * 0.03m) notes.Add($"{over:0} kcal over");
+        var shortBy = protein.Remaining - idea.TotalProteinGrams;
+        if (protein.Remaining > 0 && idea.TotalProteinGrams < protein.Remaining * 0.9m) notes.Add($"{shortBy:0} g protein short");
+        return (notes.Count == 0, notes.Count == 0 ? null : string.Join(", ", notes));
+    }
+
+    /// <summary>
+    /// The share of what's left that one meal should use: the remainder split across the main meals still to eat
+    /// (this one included). A snack counts as one extra share. The last meal of the day gets everything left.
+    /// </summary>
+    public static (decimal Calories, decimal Protein, decimal Carbs, decimal Fat, int MealsLeft) MealBudget(
+        MealType meal, IEnumerable<MealSummary> meals, RemainingAmount calories, RemainingAmount protein, RemainingAmount? carbs, RemainingAmount? fat)
+    {
+        var unloggedMain = meals.Count(m => m.MealType != MealType.Snack && m.ItemNames.Count == 0);
+        var chosenAlreadyCounted = meal != MealType.Snack && meals.Any(m => m.MealType == meal && m.ItemNames.Count == 0);
+        var shares = Math.Max(1, unloggedMain + (chosenAlreadyCounted ? 0 : 1));
+        return (calories.Remaining / shares, protein.Remaining / shares, (carbs?.Remaining ?? 0) / shares, (fat?.Remaining ?? 0) / shares, shares);
+    }
+
+    /// <summary>The first main meal with nothing logged yet, otherwise a snack.</summary>
+    public static MealType DefaultIdeaMeal(IEnumerable<MealSummary> meals)
+    {
+        var empty = meals.Where(m => m.ItemNames.Count == 0).Select(m => m.MealType).ToHashSet();
+        return new[] { MealType.Breakfast, MealType.Lunch, MealType.Dinner }.FirstOrDefault(empty.Contains, MealType.Snack);
     }
 
     /// <summary>Plain-language hints built only from the user's actual remaining targets.</summary>

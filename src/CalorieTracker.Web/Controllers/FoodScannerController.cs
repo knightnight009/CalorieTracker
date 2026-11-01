@@ -134,6 +134,30 @@ public class FoodScannerController(
         return RedirectToAction("Index", "FoodDiary", new { date = vm.Date.ToString("yyyy-MM-dd") });
     }
 
+    /// <summary>Opens a dashboard meal idea in the normal review screen, so it can be edited before saving.</summary>
+    [HttpPost]
+    public async Task<IActionResult> ReviewMealIdea(AddMealIdeaInput input, CancellationToken ct)
+    {
+        if (input.Items.Count is 0 or > 25 || !ModelState.IsValid)
+        {
+            this.Flash("That meal idea couldn't be opened. Try asking for new ideas.", "warning");
+            return RedirectToAction("Index", "Dashboard");
+        }
+        var items = input.Items.Select(i => new FoodItemAnalysis(i.Name.Trim(), i.PortionDescription?.Trim() ?? "1 portion", null, i.WeightGrams,
+            i.Calories, i.ProteinGrams, i.CarbohydratesGrams, i.FatGrams, i.FiberGrams, i.SugarGrams, null, i.Confidence ?? 0.5m, null, [])).ToList();
+        var result = new FoodAnalysisResult(items, items.Sum(i => i.Calories), items.Sum(i => i.ProteinGrams), items.Sum(i => i.CarbsGrams),
+            items.Sum(i => i.FatGrams), items.Average(i => i.Confidence), false, null, []);
+        var scan = new FoodScan
+        {
+            UserId = this.UserId(), CreatedAtUtc = clock.GetUtcNow().UtcDateTime, Provider = vision.ConfiguredProviders.FirstOrDefault() ?? "ai",
+            Model = "meal idea", MealType = input.MealType, DiaryDate = input.Date, UserContext = input.MealName.Trim(),
+            Status = FoodScanStatus.Analyzed, ResultJson = JsonSerializer.Serialize(result), OverallConfidence = result.OverallConfidence,
+        };
+        db.FoodScans.Add(scan);
+        await db.SaveChangesAsync(ct);
+        return RedirectToAction(nameof(Review), new { id = scan.Id });
+    }
+
     [HttpPost]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {

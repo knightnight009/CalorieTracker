@@ -180,6 +180,25 @@ public class FoodDiaryController(
         return await CreateEntry(input, [ItemFromFood(food, input.Grams / 100, $"{input.Grams:0.#} g")], null, $"Added {food.Name}.", ct);
     }
 
+    /// <summary>Logs a dashboard meal idea as one entry, one row per food, labelled as AI estimates.</summary>
+    [HttpPost]
+    public async Task<IActionResult> AddMealIdea(AddMealIdeaInput input, CancellationToken ct)
+    {
+        if (input.Items.Count is 0 or > 25) ModelState.AddModelError("", "A meal idea needs between 1 and 25 items.");
+        if (!ModelState.IsValid)
+        {
+            this.Flash("That meal idea had values we couldn't save. Try Review to adjust it first.", "warning");
+            return RedirectToAction("Index", "Dashboard");
+        }
+        var items = input.Items.Select(i => new FoodDiaryItem
+        {
+            FoodNameSnapshot = i.Name.Trim(), Quantity = 1, PortionDescription = i.PortionDescription?.Trim(), WeightGrams = i.WeightGrams,
+            Calories = i.Calories, ProteinGrams = i.ProteinGrams, CarbohydratesGrams = i.CarbohydratesGrams, FatGrams = i.FatGrams,
+            FiberGrams = i.FiberGrams, SugarGrams = i.SugarGrams, NutritionSource = NutritionSource.AiEstimate, IsAiEstimated = true, AiConfidence = i.Confidence,
+        }).ToList();
+        return await CreateEntry(input, items, input.MealName.Trim(), $"Added \"{input.MealName.Trim()}\" ({items.Count} items, AI estimate).", ct);
+    }
+
     [HttpPost]
     public async Task<IActionResult> AddRecent(AddRecentInput input, CancellationToken ct)
     {

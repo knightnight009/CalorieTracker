@@ -1,0 +1,111 @@
+@model DashboardViewModel
+@using CalorieTracker.Web.Services.Ai
+@{
+    var cal = Model.Calories!;
+    var protein = Model.Protein!;
+    var d = Model.Today.ToString("yyyy-MM-dd");
+    var mealName = Model.IdeasMealType.ToString().ToLowerInvariant();
+    string Amount(FoodItemAnalysis i) => i.EstimatedWeightGrams is { } g ? $"{i.Name} {g:0} g" : $"{i.Name} ({i.PortionDescription})";
+}
+<section class="card mb-3" id="meal-ideas" aria-labelledby="meal-ideas-title">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h6 mb-0" id="meal-ideas-title"><i class="bi bi-lightbulb me-1 text-warning" aria-hidden="true"></i>Meal ideas for what's left</h2>
+        <span class="d-inline-flex flex-wrap gap-1">
+            <span class="n-chip n-cal tabular">@cal.Remaining.ToString("#,0") kcal left</span>
+            <span class="n-chip n-protein tabular">@protein.Remaining.ToString("0") g protein left</span>
+            @if (Model.Carbs is { } c) { <span class="n-chip n-carbs tabular">@c.Remaining.ToString("0") g carbs</span> }
+            @if (Model.Fat is { } f) { <span class="n-chip n-fat tabular">@f.Remaining.ToString("0") g fat</span> }
+        </span>
+    </div>
+    <div class="card-body">
+        @if (!Model.AiConfigured)
+        {
+            <p class="text-muted mb-0">Meal ideas use the AI provider. Set <code>AI_API_KEY</code> on the server to turn them on.</p>
+        }
+        else
+        {
+            <form method="post" asp-action="MealIdeas" asp-fragment="meal-ideas" class="row g-2 align-items-end">
+                <div class="col-sm-3">
+                    <label for="ideaMeal" class="form-label small mb-1">Meal</label>
+                    <select id="ideaMeal" name="mealType" class="form-select">
+                        @foreach (var m in Enum.GetValues<MealType>())
+                        {
+                            <option value="@m" selected="@(m == Model.IdeasMealType)">@m</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-sm">
+                    <label for="ideaPrefs" class="form-label small mb-1">Preferences <span class="text-muted">(optional)</span></label>
+                    <input id="ideaPrefs" name="preferences" value="@Model.IdeasPreferences" maxlength="300" class="form-control" placeholder="No pork, under 20 minutes, have eggs and rice" />
+                </div>
+                <div class="col-sm-auto">
+                    <button class="btn btn-primary w-100" type="submit" data-once data-busy="Thinking…"><i class="bi bi-stars me-1" aria-hidden="true"></i>Suggest meals</button>
+                </div>
+            </form>
+
+            @if (Model.IdeasMessage is not null)
+            {
+                <div class="alert alert-info mt-3 mb-0" role="status">@Model.IdeasMessage</div>
+            }
+
+            @if (Model.MealIdeas.Count > 0)
+            {
+                @if (Model.IdeasBudget is { } b)
+                {
+                    <p class="small text-muted mt-3 mb-0">
+                        Budget for this @mealName: <strong class="tabular">@b.Calories.ToString("#,0") kcal · @b.Protein.ToString("0") g protein</strong>
+                        @if (b.MealsLeft > 1) { <text>(what's left today, split across @b.MealsLeft meals)</text> }
+                    </p>
+                }
+                <div class="d-grid gap-2 mt-2">
+                    @for (var k = 0; k < Model.MealIdeas.Count; k++)
+                    {
+                        var view = Model.MealIdeas[k];
+                        var idea = view.Idea;
+                        <form method="post" asp-controller="FoodDiary" asp-action="AddMealIdea" class="meal-idea @(view.Fits ? "fits" : null)">
+                            <input type="hidden" name="Date" value="@d" />
+                            <input type="hidden" name="MealType" value="@Model.IdeasMealType" />
+                            <input type="hidden" name="ClientRequestId" value="@Guid.NewGuid()" />
+                            <input type="hidden" name="MealName" value="@idea.Name" />
+                            @for (var j = 0; j < idea.Items.Count; j++)
+                            {
+                                var it = idea.Items[j];
+                                <input type="hidden" name="Items[@j].Include" value="true" />
+                                <input type="hidden" name="Items[@j].Name" value="@it.Name" />
+                                <input type="hidden" name="Items[@j].PortionDescription" value="@it.PortionDescription" />
+                                <input type="hidden" name="Items[@j].WeightGrams" value="@it.EstimatedWeightGrams" />
+                                <input type="hidden" name="Items[@j].Calories" value="@it.Calories" />
+                                <input type="hidden" name="Items[@j].ProteinGrams" value="@it.ProteinGrams" />
+                                <input type="hidden" name="Items[@j].CarbohydratesGrams" value="@it.CarbsGrams" />
+                                <input type="hidden" name="Items[@j].FatGrams" value="@it.FatGrams" />
+                                <input type="hidden" name="Items[@j].FiberGrams" value="@it.FiberGrams" />
+                                <input type="hidden" name="Items[@j].SugarGrams" value="@it.SugarGrams" />
+                                <input type="hidden" name="Items[@j].Confidence" value="@it.Confidence" />
+                            }
+                            <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                                <h3 class="h6 mb-0">@idea.Name</h3>
+                                @if (view.Fits)
+                                {
+                                    <span class="badge rounded-pill text-bg-success"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Fits both</span>
+                                }
+                                else
+                                {
+                                    <span class="over-badge"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>@view.Note</span>
+                                }
+                            </div>
+                            <p class="small text-muted my-2">@string.Join(" · ", idea.Items.Select(Amount))</p>
+                            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                                <partial name="_NutrientChips" model="new NutrientTotals(idea.TotalCalories, idea.TotalProteinGrams, idea.TotalCarbsGrams, idea.TotalFatGrams)" />
+                                <div class="d-flex gap-1">
+                                    <button class="btn btn-sm btn-soft" type="submit" formaction="@Url.Action("ReviewMealIdea", "FoodScanner")">Review</button>
+                                    <button class="btn btn-sm btn-primary" type="submit" data-once>Add to @mealName</button>
+                                </div>
+                            </div>
+                        </form>
+                    }
+                </div>
+                <p class="disclaimer mt-2 mb-0"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>Ideas from @Model.IdeasProvider with estimated values. Totals are added up by the app. Use Review to change anything before it's saved.</p>
+            }
+        }
+    </div>
+</section>

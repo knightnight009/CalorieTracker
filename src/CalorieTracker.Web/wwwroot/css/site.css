@@ -161,12 +161,16 @@ a { text-underline-offset: 2px; }
 .confidence.high { background: #e1f5ee; color: #0b6e55; }
 .confidence.mid { background: #fdf3dc; color: #8a5d00; }
 .confidence.low { background: #fdeee6; color: #9a3412; }
-.review-table input { min-width: 70px; }
+.review-table input:not([type=checkbox]) { min-width: 70px; }
 .review-table td { vertical-align: middle; }
 .review-row.excluded { opacity: .45; }
 
 .ai-overlay { position: fixed; inset: 0; background: rgba(15, 23, 32, .55); display: none; place-items: center; z-index: 2000; color: #fff; text-align: center; }
 .ai-overlay.show { display: grid; }
+
+/* ---------- Meal ideas ---------- */
+.meal-idea { border: 1px solid var(--ct-border); border-radius: var(--ct-radius-sm); padding: .9rem 1rem; background: var(--ct-surface); }
+.meal-idea.fits { border-color: var(--ct-brand); box-shadow: inset 0 0 0 1px var(--ct-brand); }
 
 /* ---------- Misc ---------- */
 .table { --bs-table-bg: transparent; }

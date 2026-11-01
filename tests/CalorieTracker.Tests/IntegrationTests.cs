@@ -444,6 +444,60 @@ public class IntegrationTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.Contains("Add food", await res.Content.ReadAsStringAsync());
     }
 
+    private static Dictionary<string, string> MealIdeaForm(string date) => new()
+    {
+        ["Date"] = date, ["MealType"] = "Dinner", ["ClientRequestId"] = Guid.NewGuid().ToString(), ["MealName"] = "Chicken rice bowl",
+        ["Items[0].Include"] = "true", ["Items[0].Name"] = "Chicken breast", ["Items[0].PortionDescription"] = "150 g", ["Items[0].WeightGrams"] = "150",
+        ["Items[0].Calories"] = "248", ["Items[0].ProteinGrams"] = "46", ["Items[0].CarbohydratesGrams"] = "0", ["Items[0].FatGrams"] = "5.4", ["Items[0].Confidence"] = "0.9",
+        ["Items[1].Include"] = "true", ["Items[1].Name"] = "Cooked rice", ["Items[1].PortionDescription"] = "150 g", ["Items[1].WeightGrams"] = "150",
+        ["Items[1].Calories"] = "195", ["Items[1].ProteinGrams"] = "4", ["Items[1].CarbohydratesGrams"] = "43", ["Items[1].FatGrams"] = "0.4", ["Items[1].Confidence"] = "0.85",
+    };
+
+    [Fact]
+    public async Task MealIdea_AddLogsOneEntryWithEachFood_AndReviewOpensEditableScan()
+    {
+        var email = Email("ideas");
+        var userId = await app.CreateUserAsync(email);
+        var client = await app.LoginAsync(email);
+
+        var form = MealIdeaForm("2026-11-01");
+        for (var i = 0; i < 2; i++) // double click
+            Assert.Equal(HttpStatusCode.Redirect, (await AppFactory.PostFormAsync(client, "/FoodDiary/Foods", "/FoodDiary/AddMealIdea", new(form))).StatusCode);
+
+        var entry = await app.WithDbAsync(db => db.FoodDiaryEntries.Include(e => e.Items).SingleAsync(e => e.UserId == userId));
+        Assert.Equal("Chicken rice bowl", entry.Notes);
+        Assert.Equal(MealType.Dinner, entry.MealType);
+        Assert.Equal(2, entry.Items.Count);
+        Assert.Equal(443m, entry.Items.Sum(i => i.Calories));
+        Assert.All(entry.Items, i => Assert.True(i.IsAiEstimated));
+
+        var res = await AppFactory.PostFormAsync(client, "/FoodDiary/Foods", "/FoodScanner/ReviewMealIdea", MealIdeaForm("2026-11-01"));
+        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+        var review = await client.GetStringAsync(res.Headers.Location!.ToString());
+        Assert.Contains("Cooked rice", review);
+        Assert.Contains("Chicken rice bowl", review); // meal name prefilled as the note
+    }
+
+    [Fact]
+    public async Task Dashboard_MealIdeasWithoutAi_ExplainsInsteadOfFailing()
+    {
+        var email = Email("ideas-noai");
+        await app.CreateUserAsync(email);
+        var client = await app.LoginAsync(email);
+        await AppFactory.PostFormAsync(client, "/Profile/Setup", "/Profile/Setup", new()
+        {
+            ["SexForBmrCalculation"] = "Female", ["DateOfBirth"] = "1995-01-01", ["CurrentWeight"] = "65", ["PreferredWeightUnit"] = "Kg",
+            ["HeightUnit"] = "Cm", ["HeightCm"] = "168", ["ActivityLevel"] = "LightlyActive", ["WorkoutDaysPerWeek"] = "3",
+            ["AverageWorkoutDurationMinutes"] = "45", ["WorkoutIntensity"] = "Moderate", ["PrimaryGoal"] = "Maintain",
+            ["PreferredCalorieDeficitPercentage"] = "15", ["PreferredCalorieSurplusPercentage"] = "10", ["ProteinTargetGramsPerKg"] = "1.8",
+            ["FatTargetPercentage"] = "30", ["TimeZoneId"] = "UTC",
+        });
+        Assert.Contains("Meal ideas for what's left", await client.GetStringAsync("/Dashboard"));
+        var res = await AppFactory.PostFormAsync(client, "/Dashboard", "/Dashboard/MealIdeas", new() { ["mealType"] = "Dinner" });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains("AI_API_KEY", await res.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public async Task Errors_DoNotLeakConfiguration()
     {

@@ -20,11 +20,15 @@ public interface IFoodVisionProvider
     string Name { get; }
     string Model { get; }
     bool IsConfigured { get; }
-    /// <summary>One structured-output call. The image is optional, so the same path serves photo scans and text search.</summary>
-    Task<FoodAnalysisResult> AnalyzeAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, CancellationToken ct);
+    /// <summary>
+    /// One structured-output call returning the model's JSON text. The image is optional and the schema is passed in,
+    /// so the same path serves photo scans, text search and meal ideas. Schema(true) = Gemini's upper-case type names.
+    /// </summary>
+    Task<string?> GenerateJsonAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, Func<bool, JsonObject> schema, CancellationToken ct);
 }
 
 public record FoodVisionOutcome(FoodAnalysisResult Result, string Provider, string Model);
+public record MealIdeasOutcome(IReadOnlyList<MealIdea> Meals, string Provider, string Model);
 
 public interface IFoodVisionService
 {
@@ -33,6 +37,8 @@ public interface IFoodVisionService
     Task<FoodVisionOutcome> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct);
     /// <summary>Estimates nutrition for foods matching a text search (no database lookup).</summary>
     Task<FoodVisionOutcome> EstimateFromTextAsync(string query, CancellationToken ct);
+    /// <summary>Suggests meals that fit the remaining targets. Only these numbers and the user's preference text are sent.</summary>
+    Task<MealIdeasOutcome> SuggestMealsAsync(MealIdeasRequest request, CancellationToken ct);
 }
 
 /// <summary>Uses the selected provider first, then any other configured provider when the first is out of quota or down.</summary>
@@ -44,13 +50,26 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
     public bool IsConfigured => _ordered.Count > 0;
     public IReadOnlyList<string> ConfiguredProviders => _ordered.Select(p => p.Name).ToList();
 
-    public Task<FoodVisionOutcome> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct) =>
-        RunAsync(p => p.AnalyzeAsync(image, mimeType, FoodVisionPrompt.System, FoodVisionPrompt.UserMessage(userContext), ct));
+    public async Task<FoodVisionOutcome> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct)
+    {
+        var (result, provider, model) = await RunAsync(p => p.GenerateJsonAsync(image, mimeType, FoodVisionPrompt.System, FoodVisionPrompt.UserMessage(userContext), FoodVisionPrompt.Schema, ct), FoodAnalysisParser.Parse);
+        return new FoodVisionOutcome(result, provider, model);
+    }
 
-    public Task<FoodVisionOutcome> EstimateFromTextAsync(string query, CancellationToken ct) =>
-        RunAsync(p => p.AnalyzeAsync(null, null, FoodVisionPrompt.TextSearchSystem, FoodVisionPrompt.TextSearchMessage(query), ct));
+    public async Task<FoodVisionOutcome> EstimateFromTextAsync(string query, CancellationToken ct)
+    {
+        var (result, provider, model) = await RunAsync(p => p.GenerateJsonAsync(null, null, FoodVisionPrompt.TextSearchSystem, FoodVisionPrompt.TextSearchMessage(query), FoodVisionPrompt.Schema, ct), FoodAnalysisParser.Parse);
+        return new FoodVisionOutcome(result, provider, model);
+    }
 
-    private async Task<FoodVisionOutcome> RunAsync(Func<IFoodVisionProvider, Task<FoodAnalysisResult>> call)
+    public async Task<MealIdeasOutcome> SuggestMealsAsync(MealIdeasRequest request, CancellationToken ct)
+    {
+        var (meals, provider, model) = await RunAsync(p => p.GenerateJsonAsync(null, null, FoodVisionPrompt.MealIdeasSystem, FoodVisionPrompt.MealIdeasMessage(request), FoodVisionPrompt.MealIdeasSchema, ct), FoodAnalysisParser.ParseMeals);
+        return new MealIdeasOutcome(meals, provider, model);
+    }
+
+    // Parsing happens after the provider call, so an unreadable answer is reported rather than retried on another provider.
+    private async Task<(T Result, string Provider, string Model)> RunAsync<T>(Func<IFoodVisionProvider, Task<string?>> call, Func<string?, T> parse)
     {
         if (_ordered.Count == 0)
             throw new FoodVisionException(FoodVisionErrorKind.NotConfigured, "AI estimates aren't set up yet. You can still add food manually.");
@@ -60,7 +79,8 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
         {
             try
             {
-                return new FoodVisionOutcome(await call(p), p.Name, p.Model);
+                var text = await call(p);
+                return (parse(text), p.Name, p.Model);
             }
             catch (FoodVisionException ex) when (ex.CanFallBack)
             {
@@ -78,7 +98,7 @@ public class GeminiFoodVisionProvider(HttpClient http, AiOptions options, ILogge
     public string Model => string.IsNullOrWhiteSpace(options.Model) ? "gemini-3.5-flash" : options.Model;
     public bool IsConfigured => !string.IsNullOrWhiteSpace(options.ApiKey);
 
-    public async Task<FoodAnalysisResult> AnalyzeAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, CancellationToken ct)
+    public async Task<string?> GenerateJsonAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, Func<bool, JsonObject> schema, CancellationToken ct)
     {
         var parts = new JsonArray();
         if (image is not null) parts.Add(new JsonObject { ["inline_data"] = new JsonObject { ["mime_type"] = mimeType, ["data"] = Convert.ToBase64String(image) } });
@@ -90,7 +110,7 @@ public class GeminiFoodVisionProvider(HttpClient http, AiOptions options, ILogge
             ["generationConfig"] = new JsonObject
             {
                 ["responseMimeType"] = "application/json",
-                ["responseSchema"] = FoodVisionPrompt.Schema(upperCaseTypes: true),
+                ["responseSchema"] = schema(true),
                 ["temperature"] = 0.2,
             },
         };
@@ -107,8 +127,7 @@ public class GeminiFoodVisionProvider(HttpClient http, AiOptions options, ILogge
         if (json["promptFeedback"]?["blockReason"] is not null || candidate?["finishReason"]?.GetValue<string>() is "SAFETY" or "PROHIBITED_CONTENT")
             throw new FoodVisionException(FoodVisionErrorKind.Rejected, "The AI provider declined this request. Try different wording or another photo, or add the food manually.");
         // Newer models may return thought parts first; the answer is the last text part.
-        var text = (candidate?["content"]?["parts"] as JsonArray)?.LastOrDefault(p => p?["text"] is not null)?["text"]?.GetValue<string>();
-        return FoodAnalysisParser.Parse(text);
+        return (candidate?["content"]?["parts"] as JsonArray)?.LastOrDefault(p => p?["text"] is not null)?["text"]?.GetValue<string>();
     }
 }
 
@@ -119,7 +138,7 @@ public class OllamaFoodVisionProvider(HttpClient http, AiOptions options, ILogge
     public string Model => string.IsNullOrWhiteSpace(options.OllamaModel) ? "qwen2.5vl:7b" : options.OllamaModel;
     public bool IsConfigured => !string.IsNullOrWhiteSpace(options.OllamaBaseUrl);
 
-    public async Task<FoodAnalysisResult> AnalyzeAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, CancellationToken ct)
+    public async Task<string?> GenerateJsonAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, Func<bool, JsonObject> schema, CancellationToken ct)
     {
         var user = new JsonObject { ["role"] = "user", ["content"] = userText };
         if (image is not null) user["images"] = new JsonArray(Convert.ToBase64String(image));
@@ -127,13 +146,13 @@ public class OllamaFoodVisionProvider(HttpClient http, AiOptions options, ILogge
         {
             ["model"] = Model,
             ["stream"] = false,
-            ["format"] = FoodVisionPrompt.Schema(upperCaseTypes: false),
+            ["format"] = schema(false),
             ["options"] = new JsonObject { ["temperature"] = 0.2 },
             ["messages"] = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = systemPrompt }, user),
         };
         using var req = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri(options.OllamaBaseUrl!), "/api/chat")) { Content = JsonContent.Create(body) };
         var json = await VisionHttp.SendAsync(http, req, Name, log, ct);
-        return FoodAnalysisParser.Parse(json["message"]?["content"]?.GetValue<string>());
+        return json["message"]?["content"]?.GetValue<string>();
     }
 }
 

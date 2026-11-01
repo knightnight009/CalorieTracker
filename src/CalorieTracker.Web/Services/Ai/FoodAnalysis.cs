@@ -32,6 +32,19 @@ public record FoodAnalysisResult(
     string? ClarificationQuestion,
     IReadOnlyList<string> Warnings);
 
+/// <summary>What's left for the day; the only user data sent with a meal-ideas request.</summary>
+public record MealIdeasRequest(Models.MealType MealType, decimal Calories, decimal ProteinGrams, decimal CarbohydratesGrams, decimal FatGrams,
+    string? Preferences, int Count = 3);
+
+/// <summary>A suggested meal. Totals are always the server's sum of its items.</summary>
+public record MealIdea(string Name, IReadOnlyList<FoodItemAnalysis> Items)
+{
+    public decimal TotalCalories => Items.Sum(i => i.Calories);
+    public decimal TotalProteinGrams => Items.Sum(i => i.ProteinGrams);
+    public decimal TotalCarbsGrams => Items.Sum(i => i.CarbsGrams);
+    public decimal TotalFatGrams => Items.Sum(i => i.FatGrams);
+}
+
 public enum FoodVisionErrorKind { NotConfigured, QuotaExceeded, RateLimited, Timeout, Unavailable, InvalidResponse, Rejected }
 
 public class FoodVisionException(FoodVisionErrorKind kind, string userMessage, Exception? inner = null)
@@ -94,6 +107,36 @@ public static class FoodAnalysisParser
         return new FoodAnalysisResult(items,
             items.Sum(i => i.Calories), items.Sum(i => i.ProteinGrams), items.Sum(i => i.CarbsGrams), items.Sum(i => i.FatGrams),
             overall, requiresClarification, requiresClarification ? question : null, warnings);
+    }
+
+    public const int MaxMeals = 5;
+
+    /// <summary>Validates a meal-ideas answer. Meals whose items are all implausible are dropped.</summary>
+    public static IReadOnlyList<MealIdea> ParseMeals(string? modelText)
+    {
+        if (string.IsNullOrWhiteSpace(modelText)) throw Invalid("The AI returned an empty response.");
+        var text = modelText.Trim();
+        if (text.StartsWith("```"))
+        {
+            var start = text.IndexOf('{');
+            var end = text.LastIndexOf('}');
+            if (start < 0 || end < start) throw Invalid("The AI response was not JSON.");
+            text = text[start..(end + 1)];
+        }
+        JsonObject root;
+        try { root = JsonNode.Parse(text) as JsonObject ?? throw Invalid("The AI response was not a JSON object."); }
+        catch (JsonException ex) { throw Invalid("The AI response was not valid JSON.", ex); }
+
+        var meals = new List<MealIdea>();
+        if (root["meals"] is JsonArray arr)
+            foreach (var node in arr.Take(MaxMeals).OfType<JsonObject>())
+            {
+                var items = (node["items"] as JsonArray)?.Take(MaxItems).OfType<JsonObject>().Select(ParseItem).OfType<FoodItemAnalysis>().ToList() ?? [];
+                if (items.Count == 0) continue;
+                meals.Add(new MealIdea(Str(node["name"], 120) ?? "Meal idea", items));
+            }
+        if (meals.Count == 0) throw Invalid("The AI didn't return any usable meal ideas.");
+        return meals;
     }
 
     private static FoodItemAnalysis? ParseItem(JsonObject o)

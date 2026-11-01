@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using CalorieTracker.Web.Infrastructure;
 using CalorieTracker.Web.Services;
 using CalorieTracker.Web.Services.Ai;
+using CalorieTracker.Web.ViewModels;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -105,24 +106,94 @@ public class FoodAnalysisParserTests
         Assert.Contains("<notes>\nfried in butter\n</notes>", FoodVisionPrompt.UserMessage("  fried in butter "));
 }
 
+public class MealIdeasTests
+{
+    [Fact]
+    public void ParseMeals_RecomputesTotals_AndDropsUnusableMeals()
+    {
+        var meals = FoodAnalysisParser.ParseMeals("""
+            {"meals":[
+              {"name":"Tuna salad","totalCalories":9999,"items":[
+                {"name":"Tuna in water","portionDescription":"1 can","estimatedWeightGrams":120,"calories":130,"proteinGrams":29,"carbsGrams":0,"fatGrams":1,"confidence":0.9,"notes":""},
+                {"name":"Olive oil","portionDescription":"1 tsp","estimatedWeightGrams":5,"calories":40,"proteinGrams":0,"carbsGrams":0,"fatGrams":4.5,"confidence":0.9,"notes":""}]},
+              {"name":"Broken","items":[{"name":"x","portionDescription":"1","calories":-5,"proteinGrams":1,"carbsGrams":1,"fatGrams":1,"confidence":0.5,"notes":""}]},
+              {"name":"Empty","items":[]}
+            ]}
+            """);
+        var m = Assert.Single(meals);
+        Assert.Equal("Tuna salad", m.Name);
+        Assert.Equal(170m, m.TotalCalories); // not 9999
+        Assert.Equal(29m, m.TotalProteinGrams);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("{\"meals\":[]}")]
+    [InlineData("nope")]
+    public void ParseMeals_RejectsNothingUsable(string text) =>
+        Assert.Equal(FoodVisionErrorKind.InvalidResponse, Assert.Throws<FoodVisionException>(() => FoodAnalysisParser.ParseMeals(text)).Kind);
+
+    private static MealIdea Meal(decimal kcal, decimal protein) =>
+        new("M", [new FoodItemAnalysis("x", "1", null, null, kcal, protein, 0, 0, null, null, null, 0.9m, null, [])]);
+
+    [Theory]
+    [InlineData(480, 46, true, null)]
+    [InlineData(520, 41, true, null)]               // exactly the budget; 41 ≥ 90% of 45
+    [InlineData(530, 45, true, null)]               // 10 kcal over is within the 3% rounding allowance
+    [InlineData(390, 36, false, "9 g protein short")]
+    [InlineData(600, 50, false, "80 kcal over")]
+    [InlineData(600, 30, false, "80 kcal over, 15 g protein short")]
+    public void Fit_UsesRemainingCaloriesAndProtein(decimal kcal, decimal protein, bool fits, string? note)
+    {
+        var (f, n) = DashboardService.MealIdeaFit(Meal(kcal, protein), new RemainingAmount(2000, 1480), new RemainingAmount(140, 95));
+        Assert.Equal(fits, f);
+        Assert.Equal(note, n);
+    }
+
+    [Theory]
+    [InlineData("", "Breakfast", 3)]          // nothing logged: breakfast gets a third
+    [InlineData("Breakfast", "Lunch", 2)]     // lunch and dinner left
+    [InlineData("Breakfast,Lunch", "Dinner", 1)] // last meal gets everything
+    [InlineData("", "Snack", 4)]              // a snack is one extra share
+    [InlineData("Breakfast,Lunch,Dinner", "Snack", 1)]
+    [InlineData("Breakfast", "Breakfast", 3)] // a second breakfast still leaves lunch and dinner
+    public void MealBudget_SplitsWhatsLeftAcrossMealsStillToEat(string logged, string chosen, int shares)
+    {
+        var loggedSet = logged.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(Enum.Parse<CalorieTracker.Web.Models.MealType>).ToHashSet();
+        var meals = Enum.GetValues<CalorieTracker.Web.Models.MealType>().Select(t => new MealSummary(t, NutrientTotals.Zero, loggedSet.Contains(t) ? ["food"] : [])).ToList();
+        var b = DashboardService.MealBudget(Enum.Parse<CalorieTracker.Web.Models.MealType>(chosen), meals, new RemainingAmount(2400, 0), new RemainingAmount(150, 30), null, null);
+        Assert.Equal(shares, b.MealsLeft);
+        Assert.Equal(2400m / shares, b.Calories);
+        Assert.Equal(120m / shares, b.Protein);
+    }
+
+    [Fact]
+    public void DefaultMeal_IsFirstUnloggedMainMeal_ElseSnack()
+    {
+        MealSummary S(CalorieTracker.Web.Models.MealType t, bool logged) => new(t, NutrientTotals.Zero, logged ? ["food"] : []);
+        Assert.Equal(CalorieTracker.Web.Models.MealType.Lunch, DashboardService.DefaultIdeaMeal([S(CalorieTracker.Web.Models.MealType.Breakfast, true), S(CalorieTracker.Web.Models.MealType.Lunch, false), S(CalorieTracker.Web.Models.MealType.Dinner, false)]));
+        Assert.Equal(CalorieTracker.Web.Models.MealType.Snack, DashboardService.DefaultIdeaMeal([S(CalorieTracker.Web.Models.MealType.Breakfast, true), S(CalorieTracker.Web.Models.MealType.Lunch, true), S(CalorieTracker.Web.Models.MealType.Dinner, true)]));
+    }
+}
+
 public class FoodVisionServiceTests
 {
-    private sealed class FakeProvider(string name, bool configured, Func<FoodAnalysisResult> run) : IFoodVisionProvider
+    private sealed class FakeProvider(string name, bool configured, Func<string> run) : IFoodVisionProvider
     {
         public int Calls;
         public (byte[]? Image, string Prompt, string Text) Last;
         public string Name => name;
         public string Model => "m";
         public bool IsConfigured => configured;
-        public Task<FoodAnalysisResult> AnalyzeAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, CancellationToken ct)
+        public Task<string?> GenerateJsonAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, Func<bool, JsonObject> schema, CancellationToken ct)
         {
             Calls++;
             Last = (image, systemPrompt, userText);
-            return Task.FromResult(run());
+            return Task.FromResult<string?>(run());
         }
     }
 
-    private static readonly FoodAnalysisResult Ok = FoodAnalysisParser.Parse("""{"items":[{"name":"Egg","portionDescription":"1","calories":78,"proteinGrams":6,"carbsGrams":0.6,"fatGrams":5,"confidence":0.9,"notes":""}],"overallConfidence":0.9,"requiresClarification":false}""");
+    private const string Ok = """{"items":[{"name":"Egg","portionDescription":"1","calories":78,"proteinGrams":6,"carbsGrams":0.6,"fatGrams":5,"confidence":0.9,"notes":""}],"overallConfidence":0.9,"requiresClarification":false}""";
 
     [Fact]
     public async Task NotConfigured_ThrowsClearError()
@@ -157,13 +228,33 @@ public class FoodVisionServiceTests
     }
 
     [Fact]
+    public async Task MealIdeas_SendOnlyRemainingNumbersAndPreferences()
+    {
+        var gemini = new FakeProvider("gemini", true, () => """
+            {"meals":[{"name":"Chicken rice bowl","items":[
+              {"name":"Chicken breast","portionDescription":"150 g","estimatedWeightGrams":150,"calories":248,"proteinGrams":46,"carbsGrams":0,"fatGrams":5.4,"confidence":0.9,"notes":""},
+              {"name":"Cooked rice","portionDescription":"150 g","estimatedWeightGrams":150,"calories":195,"proteinGrams":4,"carbsGrams":43,"fatGrams":0.4,"confidence":0.9,"notes":""}]}]}
+            """);
+        var svc = new FoodVisionService([gemini], new AiOptions(), NullLogger<FoodVisionService>.Instance);
+        var outcome = await svc.SuggestMealsAsync(new MealIdeasRequest(CalorieTracker.Web.Models.MealType.Dinner, 520.4m, 45, 62, 18, "no pork  "), default);
+
+        var meal = Assert.Single(outcome.Meals);
+        Assert.Equal(443m, meal.TotalCalories);
+        Assert.Equal(50m, meal.TotalProteinGrams);
+        Assert.Equal(FoodVisionPrompt.MealIdeasSystem, gemini.Last.Prompt);
+        Assert.Contains("Suggest 3 dinner ideas", gemini.Last.Text);
+        Assert.Contains("Budget for this meal: 520 kcal, 45 g protein, 62 g carbs, 18 g fat", gemini.Last.Text);
+        Assert.Contains("<preferences>\nno pork\n</preferences>", gemini.Last.Text);
+    }
+
+    [Fact]
     public void TextSearchMessage_TruncatesLongQueries() =>
         Assert.True(FoodVisionPrompt.TextSearchMessage(new string('a', 500)).Length < 200);
 
     [Fact]
     public async Task DoesNotFallBack_OnInvalidResponse()
     {
-        var gemini = new FakeProvider("gemini", true, () => throw new FoodVisionException(FoodVisionErrorKind.InvalidResponse, "bad"));
+        var gemini = new FakeProvider("gemini", true, () => "this is not json");
         var ollama = new FakeProvider("ollama", true, () => Ok);
         var svc = new FoodVisionService([gemini, ollama], new AiOptions { Provider = "gemini" }, NullLogger<FoodVisionService>.Instance);
         await Assert.ThrowsAsync<FoodVisionException>(() => svc.AnalyzeAsync([1], "image/jpeg", null, default));

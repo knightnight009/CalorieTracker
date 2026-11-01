@@ -12,7 +12,7 @@
     if (e.defaultPrevented) return;
     if (window.jQuery && jQuery(form).data('validator') && !jQuery(form).valid()) return;
     $$('button[type=submit][data-once]', form).forEach((b) => {
-      setTimeout(() => { b.disabled = true; b.dataset.label = b.innerHTML; b.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving…'; }, 0);
+      setTimeout(() => { b.disabled = true; b.dataset.label = b.innerHTML; b.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>${b.dataset.busy || 'Saving…'}`; }, 0);
     });
   });
   // Re-enable buttons if the page is restored from the back/forward cache.
