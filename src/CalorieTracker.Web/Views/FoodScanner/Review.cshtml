@@ -3,12 +3,16 @@
     ViewData["Title"] = "Review AI estimate";
     var a = Model.Analysis!;
     string Conf(decimal c) => c >= 0.75m ? "high" : c >= 0.5m ? "mid" : "low";
+    // The row with the most protein (if it has a meaningful amount) gets the protein-source tools.
+    var top = Model.Items.Select((it, idx) => (it, idx)).MaxBy(x => x.it.ProteinGrams);
+    var proteinRow = Model.Items.Count > 0 && top.it.ProteinGrams >= CalorieTracker.Web.Controllers.FoodScannerController.ProteinSourceMinGrams ? top.idx : -1;
+    var canSplit = !(ViewData["AlreadySaved"] is true);
 }
 
 <div class="page-header">
     <div>
         <h1>Review the estimate</h1>
-        <p class="subtitle">Check each item before saving. Change an item's grams and its calories and macros scale with it; you can also edit any number directly. Totals update as you edit and are recalculated on the server when you save.</p>
+        <p class="subtitle">Check each item before saving. Change an item's grams and its calories and macros scale with it. For the protein source you can also set the protein you actually had. You can edit any number directly. Totals update as you edit and are recalculated on the server when you save.</p>
     </div>
     <span class="confidence @Conf(a.OverallConfidence)"><i class="bi bi-speedometer"></i>Overall confidence @a.OverallConfidence.ToString("P0")</span>
 </div>
@@ -45,7 +49,7 @@
                     @for (var i = 0; i < Model.Items.Count; i++)
                     {
                         var ai = Model.Items[i].OriginalIndex >= 0 && Model.Items[i].OriginalIndex < a.Items.Count ? a.Items[Model.Items[i].OriginalIndex] : null;
-                        <tr class="review-row">
+                        <tr class="review-row @(i == proteinRow ? "protein-source" : null)" data-row="@i">
                             <td>
                                 <input type="hidden" name="Items[@i].OriginalIndex" value="@Model.Items[i].OriginalIndex" />
                                 <input class="form-check-input" type="checkbox" name="Items[@i].Include" value="true" @(Model.Items[i].Include ? "checked" : null) aria-label="Keep item @(i + 1)" data-include />
@@ -53,6 +57,7 @@
                             </td>
                             <td style="min-width: 200px">
                                 <input class="form-control form-control-sm fw-semibold" name="Items[@i].Name" value="@Model.Items[i].Name" maxlength="200" required aria-label="Food name" />
+                                @if (i == proteinRow) { <span class="badge protein-badge mt-1">protein source</span> }
                                 @if (ai is not null)
                                 {
                                     <div class="mt-1 d-flex flex-wrap gap-1 align-items-center">
@@ -63,6 +68,13 @@
                                     @foreach (var w in ai.Warnings) { <div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle me-1"></i>@w</div> }
                                 }
                                 <span asp-validation-for="Items[i].Name" class="text-danger small"></span>
+                                @if (canSplit && ai is not null && Model.Items[i].Calories >= 250)
+                                {
+                                    <button type="submit" class="btn btn-link btn-sm p-0 mt-1 d-block text-decoration-none" formaction="@Url.Action("SplitItem")" formnovalidate
+                                            name="splitIndex" value="@i" title="Ask the AI to list this dish's ingredients separately (uses one AI request)">
+                                        <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>Split into ingredients
+                                    </button>
+                                }
                             </td>
                             <td><input class="form-control form-control-sm" name="Items[@i].PortionDescription" value="@Model.Items[i].PortionDescription" maxlength="100" aria-label="Portion" /></td>
                             <td><input class="form-control form-control-sm" type="number" step="any" min="0" name="Items[@i].WeightGrams" value="@Model.Items[i].WeightGrams" aria-label="Weight in grams" /></td>
@@ -75,6 +87,27 @@
                                 <input type="hidden" name="Items[@i].SugarGrams" value="@Model.Items[i].SugarGrams" />
                             </td>
                         </tr>
+                        @if (i == proteinRow)
+                        {
+                            <tr class="adjust-row" data-for="@i">
+                                <td></td>
+                                <td colspan="7">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 small">
+                                        <label for="set-protein-@i" class="mb-0">Set protein to</label>
+                                        <input id="set-protein-@i" type="number" step="any" min="1" max="500" class="form-control form-control-sm" style="width: 80px" placeholder="@Model.Items[i].ProteinGrams.ToString("0")" data-set-protein />
+                                        <span>g, and the weight and calories follow.</span>
+                                        @if (Model.Items[i].WeightGrams is > 0)
+                                        {
+                                            <span class="text-muted ms-md-2">Quick weight:</span>
+                                            @foreach (var g in new[] { 100, 150, 200 })
+                                            {
+                                                <button type="button" class="btn btn-sm btn-soft py-0" data-set-grams="@g">@g g</button>
+                                            }
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
                     }
                 </tbody>
                 <tfoot>
@@ -85,6 +118,7 @@
                         <td class="n-carbs"><span class="n-text" id="sum-c">@a.TotalCarbsGrams.ToString("0.#")</span> g</td>
                         <td class="n-fat"><span class="n-text" id="sum-f">@a.TotalFatGrams.ToString("0.#")</span> g</td>
                     </tr>
+                    <tr><td colspan="8" class="text-end small text-muted pt-0" id="was-line" aria-live="polite"></td></tr>
                 </tfoot>
             </table>
         </div>

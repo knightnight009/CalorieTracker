@@ -165,15 +165,22 @@
   const review = document.getElementById('reviewForm');
   if (review) {
     const body = document.getElementById('reviewRows');
+    // Only item rows count; helper rows (like the protein adjuster) have no inputs of their own.
+    const itemRows = () => $$('tr.review-row', body);
+    let initial = null;
     const total = () => {
       const sums = { cal: 0, p: 0, c: 0, f: 0 };
-      $$('tr', body).forEach((tr) => {
+      itemRows().forEach((tr) => {
         const keep = tr.querySelector('[data-include]').checked;
         tr.classList.toggle('excluded', !keep);
         if (keep) $$('[data-sum]', tr).forEach((i) => { sums[i.dataset.sum] += num(i.value); });
       });
       document.getElementById('sum-cal').textContent = Math.round(sums.cal);
       ['p', 'c', 'f'].forEach((k) => { document.getElementById('sum-' + k).textContent = sums[k].toFixed(1).replace(/\.0$/, ''); });
+      // Remember the first totals so the user can see what their changes did.
+      if (!initial) initial = { ...sums };
+      const changed = Math.round(sums.cal) !== Math.round(initial.cal) || Math.abs(sums.p - initial.p) >= 0.1;
+      document.getElementById('was-line').textContent = changed ? `Was ${Math.round(initial.cal)} kcal · ${initial.p.toFixed(1).replace(/\.0$/, '')} g protein before your changes` : '';
     };
     // Changing a row's grams scales that row's kcal and macros. The baseline is taken when the grams field
     // gets focus, so numbers the user already edited by hand are scaled from, not overwritten with AI values.
@@ -192,10 +199,36 @@
       if (w0 <= 0 || w <= 0) return; // no starting weight to scale from
       rowInputs(tr).forEach((i) => { if (i.dataset.base) i.value = +(num(i.dataset.base) * w / w0).toFixed(1); });
     });
+    // Protein-source tools: scale the whole row (weight, kcal, every macro) by one factor.
+    const scaleRow = (tr, factor) => {
+      if (!(factor > 0) || !Number.isFinite(factor)) return;
+      const w = tr.querySelector('[name$=".WeightGrams"]');
+      if (w && w.value !== '') w.value = +(num(w.value) * factor).toFixed(1);
+      rowInputs(tr).forEach((i) => { if (i.value !== '') i.value = +(num(i.value) * factor).toFixed(1); });
+      total();
+    };
+    const rowFor = (el) => body.querySelector(`tr[data-row="${el.closest('[data-for]').dataset.for}"]`);
+    body.addEventListener('change', (e) => {
+      if (!e.target.matches('[data-set-protein]')) return;
+      const tr = rowFor(e.target);
+      const current = num(tr.querySelector('[name$=".ProteinGrams"]').value), wanted = num(e.target.value);
+      if (current > 0 && wanted > 0) scaleRow(tr, wanted / current);
+      e.target.value = '';
+      e.target.placeholder = Math.round(num(tr.querySelector('[name$=".ProteinGrams"]').value));
+    });
+    body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-set-grams]');
+      if (!btn) return;
+      const tr = rowFor(btn);
+      const current = num(tr.querySelector('[name$=".WeightGrams"]').value);
+      if (current > 0) scaleRow(tr, num(btn.dataset.setGrams) / current);
+      const p = body.querySelector('[data-set-protein]');
+      if (p) p.placeholder = Math.round(num(tr.querySelector('[name$=".ProteinGrams"]').value));
+    });
     review.addEventListener('input', total);
     review.addEventListener('change', total);
     document.getElementById('addRow').addEventListener('click', () => {
-      const idx = $$('tr', body).length;
+      const idx = itemRows().length;
       body.insertAdjacentHTML('beforeend', document.getElementById('rowTemplate').innerHTML.replaceAll('__i__', idx));
       body.lastElementChild.querySelector('input[name$=".Name"]').focus();
     });

@@ -164,6 +164,9 @@ a { text-underline-offset: 2px; }
 .review-table input:not([type=checkbox]) { min-width: 70px; }
 .review-table td { vertical-align: middle; }
 .review-row.excluded { opacity: .45; }
+.review-row.protein-source > td { background: var(--ct-protein-soft); }
+.adjust-row > td { background: var(--ct-protein-soft); border-top: 0; padding-top: 0; }
+.protein-badge { background: #fff; color: var(--ct-protein-text); border: 1px solid var(--ct-protein); font-weight: 600; }
 
 .ai-overlay { position: fixed; inset: 0; background: rgba(15, 23, 32, .55); display: none; place-items: center; z-index: 2000; color: #fff; text-align: center; }
 .ai-overlay.show { display: grid; }

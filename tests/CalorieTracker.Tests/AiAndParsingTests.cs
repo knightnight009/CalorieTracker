@@ -280,6 +280,18 @@ public class FoodVisionServiceTests
     }
 
     [Fact]
+    public async Task SplitDish_SendsTheDishAsData_WithItsTotals()
+    {
+        var gemini = new FakeProvider("gemini", true, () => Ok);
+        var svc = new FoodVisionService([gemini], new AiOptions(), NullLogger<FoodVisionService>.Instance);
+        var dish = new FoodItemAnalysis("Chicken rice bowl", "1 bowl", null, 400, 560, 38, 62, 16, null, null, null, 0.7m, null, []);
+        await svc.SplitDishAsync(dish, default);
+        Assert.Equal(FoodVisionPrompt.SplitDishSystem, gemini.Last.Prompt);
+        Assert.Contains("<dish>\nChicken rice bowl, 1 bowl, about 400 g\n</dish>", gemini.Last.Text);
+        Assert.Contains("560 kcal, 38 g protein, 62 g carbs, 16 g fat", gemini.Last.Text);
+    }
+
+    [Fact]
     public void TextSearchMessage_TruncatesLongQueries() =>
         Assert.True(FoodVisionPrompt.TextSearchMessage(new string('a', 500)).Length < 200);
 

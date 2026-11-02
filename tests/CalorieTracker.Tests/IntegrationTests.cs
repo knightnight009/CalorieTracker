@@ -7,6 +7,8 @@ using CalorieTracker.Web.Services.Email;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using CalorieTracker.Web.Services.Ai;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -551,6 +553,108 @@ public class IntegrationTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.Equal("1.5× 1 plate", added[0].Items.Single().PortionDescription);
         Assert.Equal("Usual oats", added[1].Notes);
         Assert.Equal(300m, added[1].Items.Single().Calories);
+    }
+
+    private sealed class SplitOnlyAi : IFoodVisionService
+    {
+        public bool IsConfigured => true;
+        public IReadOnlyList<string> ConfiguredProviders => ["fake"];
+        public FoodItemAnalysis? LastDish;
+        public Task<FoodVisionOutcome> SplitDishAsync(FoodItemAnalysis dish, CancellationToken ct)
+        {
+            LastDish = dish;
+            FoodItemAnalysis Part(string n, decimal g, decimal kcal, decimal p, decimal c, decimal f) => new(n, $"{g} g", null, g, kcal, p, c, f, null, null, null, 0.8m, null, []);
+            var parts = new List<FoodItemAnalysis> { Part("Grilled chicken", 150, 248, 46, 0, 5), Part("White rice", 200, 260, 5, 57, 1), Part("Sesame oil", 7, 62, 0, 0, 7) };
+            return Task.FromResult(new FoodVisionOutcome(new FoodAnalysisResult(parts, 570, 51, 57, 13, 0.8m, false, null, []), "fake", "m"));
+        }
+        public Task<FoodVisionOutcome> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct) => throw new NotSupportedException();
+        public Task<FoodVisionOutcome> EstimateFromTextAsync(string query, CancellationToken ct) => throw new NotSupportedException();
+        public Task<MealIdeasOutcome> SuggestMealsAsync(MealIdeasRequest request, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    private Task<int> SeedBowlScanAsync(string userId) => app.WithDbAsync(async db =>
+    {
+        FoodItemAnalysis I(string n, decimal kcal, decimal p) => new(n, "1", null, 100, kcal, p, 10, 5, null, null, null, 0.7m, "ai note", []);
+        var result = new FoodAnalysisResult([I("Iced tea", 90, 0), I("Chicken rice bowl", 560, 38), I("Side salad", 40, 2)], 690, 40, 30, 15, 0.7m, false, null, []);
+        var scan = new FoodScan { UserId = userId, CreatedAtUtc = DateTime.UtcNow, Provider = "gemini", Model = "m", MealType = MealType.Lunch, DiaryDate = new DateOnly(2026, 11, 2), Status = FoodScanStatus.Analyzed, ResultJson = System.Text.Json.JsonSerializer.Serialize(result) };
+        db.FoodScans.Add(scan);
+        await db.SaveChangesAsync();
+        return scan.Id;
+    });
+
+    [Fact]
+    public async Task Review_PutsProteinSourceFirst_WithAdjustTools()
+    {
+        var email = Email("protein-first");
+        var userId = await app.CreateUserAsync(email);
+        var scanId = await SeedBowlScanAsync(userId);
+        var html = await (await app.LoginAsync(email)).GetStringAsync($"/FoodScanner/Review/{scanId}");
+        Assert.True(html.IndexOf("Chicken rice bowl") < html.IndexOf("Iced tea"));
+        Assert.Contains("protein source", html);
+        Assert.Contains("Set protein to", html);
+        Assert.Contains("Split into ingredients", html); // 560 kcal row
+    }
+
+    [Fact]
+    public async Task SplitItem_ReplacesTheRowWithIngredients_AndKeepsOtherEdits()
+    {
+        var ai = new SplitOnlyAi();
+        using var withAi = app.WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<IFoodVisionService>(ai)));
+        var email = Email("split");
+        var userId = await app.CreateUserAsync(email);
+        var scanId = await SeedBowlScanAsync(userId);
+        var client = withAi.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        Assert.Equal(HttpStatusCode.Redirect, (await AppFactory.PostFormAsync(client, "/Identity/Account/Login", "/Identity/Account/Login",
+            new() { ["Input.Email"] = email, ["Input.Password"] = AppFactory.Password })).StatusCode);
+
+        // As displayed: bowl first (protein source), user changed the bowl's weight, unticked the tea and added a row.
+        var form = new Dictionary<string, string>
+        {
+            ["ScanId"] = scanId.ToString(), ["Date"] = "2026-11-03", ["MealType"] = "Dinner", ["Notes"] = "edited", ["splitIndex"] = "0",
+            ["Items[0].OriginalIndex"] = "1", ["Items[0].Include"] = "true", ["Items[0].Name"] = "Chicken rice bowl", ["Items[0].WeightGrams"] = "400",
+            ["Items[0].Calories"] = "560", ["Items[0].ProteinGrams"] = "38", ["Items[0].CarbohydratesGrams"] = "62", ["Items[0].FatGrams"] = "16",
+            ["Items[1].OriginalIndex"] = "0", ["Items[1].Include"] = "false", ["Items[1].Name"] = "Iced tea", ["Items[1].Calories"] = "90", ["Items[1].ProteinGrams"] = "0", ["Items[1].CarbohydratesGrams"] = "22", ["Items[1].FatGrams"] = "0",
+            ["Items[2].OriginalIndex"] = "2", ["Items[2].Include"] = "true", ["Items[2].Name"] = "Side salad", ["Items[2].Calories"] = "55", ["Items[2].ProteinGrams"] = "2", ["Items[2].CarbohydratesGrams"] = "6", ["Items[2].FatGrams"] = "3",
+            ["Items[3].OriginalIndex"] = "-1", ["Items[3].Include"] = "true", ["Items[3].Name"] = "Kimchi", ["Items[3].Calories"] = "15", ["Items[3].ProteinGrams"] = "1", ["Items[3].CarbohydratesGrams"] = "2", ["Items[3].FatGrams"] = "0",
+        };
+        var res = await AppFactory.PostFormAsync(client, $"/FoodScanner/Review/{scanId}", "/FoodScanner/SplitItem", form);
+        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+        Assert.Equal(400m, ai.LastDish!.EstimatedWeightGrams); // the user's corrected weight went to the AI
+
+        var scan = await app.WithDbAsync(db => db.FoodScans.AsNoTracking().SingleAsync(s => s.Id == scanId));
+        var stored = System.Text.Json.JsonSerializer.Deserialize<FoodAnalysisResult>(scan.ResultJson!)!;
+        Assert.Equal(["Grilled chicken", "White rice", "Sesame oil", "Side salad", "Kimchi"], stored.Items.Select(i => i.Name));
+        Assert.Equal(55m, stored.Items.Single(i => i.Name == "Side salad").Calories); // user's edit kept
+        Assert.Equal("ai note", stored.Items.Single(i => i.Name == "Side salad").Notes);
+        Assert.Equal(new DateOnly(2026, 11, 3), scan.DiaryDate);
+        Assert.Equal(MealType.Dinner, scan.MealType);
+        Assert.Equal(640m, stored.TotalCalories);
+
+        // Another user can't split this scan.
+        var other = Email("split-other");
+        await app.CreateUserAsync(other);
+        var otherClient = withAi.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        await AppFactory.PostFormAsync(otherClient, "/Identity/Account/Login", "/Identity/Account/Login", new() { ["Input.Email"] = other, ["Input.Password"] = AppFactory.Password });
+        Assert.Equal(HttpStatusCode.NotFound, (await AppFactory.PostFormAsync(otherClient, "/FoodScanner/Index", "/FoodScanner/SplitItem", new(form))).StatusCode);
+    }
+
+    [Fact]
+    public async Task SplitItem_WithoutAi_SavesEditsAndExplains()
+    {
+        var email = Email("split-noai");
+        var userId = await app.CreateUserAsync(email);
+        var scanId = await SeedBowlScanAsync(userId);
+        var client = await app.LoginAsync(email);
+        var res = await AppFactory.PostFormAsync(client, $"/FoodScanner/Review/{scanId}", "/FoodScanner/SplitItem", new()
+        {
+            ["ScanId"] = scanId.ToString(), ["Date"] = "2026-11-02", ["MealType"] = "Lunch", ["splitIndex"] = "0",
+            ["Items[0].OriginalIndex"] = "1", ["Items[0].Include"] = "true", ["Items[0].Name"] = "Chicken rice bowl", ["Items[0].Calories"] = "600",
+            ["Items[0].ProteinGrams"] = "40", ["Items[0].CarbohydratesGrams"] = "62", ["Items[0].FatGrams"] = "16",
+        });
+        Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+        Assert.Contains("isn&#x27;t set up", await client.GetStringAsync(res.Headers.Location!.ToString()));
+        var stored = System.Text.Json.JsonSerializer.Deserialize<FoodAnalysisResult>((await app.WithDbAsync(db => db.FoodScans.AsNoTracking().SingleAsync(s => s.Id == scanId))).ResultJson!)!;
+        Assert.Equal(600m, stored.Items.Single().Calories);
     }
 
     [Fact]

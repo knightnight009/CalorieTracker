@@ -63,17 +63,87 @@ public class FoodScannerController(
         if (scan?.ResultJson is null) return NotFound();
         var analysis = JsonSerializer.Deserialize<FoodAnalysisResult>(scan.ResultJson)!;
         ViewData["AlreadySaved"] = scan.Status == FoodScanStatus.Saved;
+        var items = analysis.Items.Select((i, idx) => new ReviewItemInput
+        {
+            OriginalIndex = idx, Name = i.Name, PortionDescription = i.PortionDescription, WeightGrams = i.EstimatedWeightGrams,
+            Calories = i.Calories, ProteinGrams = i.ProteinGrams, CarbohydratesGrams = i.CarbsGrams, FatGrams = i.FatGrams,
+            FiberGrams = i.FiberGrams, SugarGrams = i.SugarGrams,
+        }).ToList();
+        // The main protein source goes first: it's the portion people most often need to correct.
+        var source = items.MaxBy(i => i.ProteinGrams);
+        if (source is { ProteinGrams: >= ProteinSourceMinGrams }) { items.Remove(source); items.Insert(0, source); }
         return View(new FoodAnalysisResultViewModel
         {
             ScanId = scan.Id, Date = scan.DiaryDate, MealType = scan.MealType, Notes = scan.UserContext,
-            Analysis = analysis, Provider = scan.Provider, Model = scan.Model,
-            Items = analysis.Items.Select((i, idx) => new ReviewItemInput
-            {
-                OriginalIndex = idx, Name = i.Name, PortionDescription = i.PortionDescription, WeightGrams = i.EstimatedWeightGrams,
-                Calories = i.Calories, ProteinGrams = i.ProteinGrams, CarbohydratesGrams = i.CarbsGrams, FatGrams = i.FatGrams,
-                FiberGrams = i.FiberGrams, SugarGrams = i.SugarGrams,
-            }).ToList(),
+            Analysis = analysis, Provider = scan.Provider, Model = scan.Model, Items = items,
         });
+    }
+
+    /// <summary>Rows with less protein than this aren't highlighted as "the protein source".</summary>
+    public const decimal ProteinSourceMinGrams = 10;
+
+    /// <summary>
+    /// Splits one row (for example a whole "chicken rice bowl") into separate ingredients with one AI call.
+    /// Posted from the review form, so the user's unsaved edits to the other rows are kept.
+    /// </summary>
+    [HttpPost, EnableRateLimiting(RateLimits.Ai)]
+    public async Task<IActionResult> SplitItem(FoodAnalysisResultViewModel vm, int splitIndex, CancellationToken ct)
+    {
+        var scan = await db.FoodScans.SingleOrDefaultAsync(s => s.Id == vm.ScanId && s.UserId == this.UserId(), ct);
+        if (scan?.ResultJson is null) return NotFound();
+        if (scan.Status == FoodScanStatus.Saved || splitIndex < 0 || splitIndex >= vm.Items.Count) return RedirectToAction(nameof(Review), new { id = scan.Id });
+        var stored = JsonSerializer.Deserialize<FoodAnalysisResult>(scan.ResultJson)!;
+        if (!ModelState.IsValid)
+        {
+            vm.Analysis = stored; vm.Provider = scan.Provider; vm.Model = scan.Model;
+            return View(nameof(Review), vm);
+        }
+
+        // Rebuild the rows as the user currently sees them, keeping the AI's notes and confidence for rows that came from it.
+        FoodItemAnalysis ToItem(ReviewItemInput i)
+        {
+            var ai = i.OriginalIndex >= 0 && i.OriginalIndex < stored.Items.Count ? stored.Items[i.OriginalIndex] : null;
+            return new FoodItemAnalysis(i.Name.Trim(), i.PortionDescription?.Trim() is { Length: > 0 } p ? p : "1 portion", ai?.PortionUnit, i.WeightGrams,
+                i.Calories, i.ProteinGrams, i.CarbohydratesGrams, i.FatGrams, i.FiberGrams, i.SugarGrams, ai?.CookingMethod, ai?.Confidence ?? 0.5m, ai?.Notes, []);
+        }
+        var target = ToItem(vm.Items[splitIndex]);
+        var rows = vm.Items.Select((r, idx) => (r, idx)).Where(x => x.r.Include).Select(x => (Item: ToItem(x.r), x.idx)).ToList();
+
+        scan.DiaryDate = vm.Date;
+        scan.MealType = vm.MealType;
+        scan.UserContext = vm.Notes?.Trim();
+        var message = "";
+        var split = false;
+        if (!vision.IsConfigured) message = "Splitting needs the AI provider, which isn't set up.";
+        else
+        {
+            try
+            {
+                var parts = (await vision.SplitDishAsync(target, ct)).Result.Items;
+                if (parts.Count < 2) message = $"\"{target.Name}\" couldn't be split further.";
+                else
+                {
+                    var at = rows.FindIndex(r => r.idx == splitIndex);
+                    if (at < 0) at = rows.Count;
+                    else rows.RemoveAt(at);
+                    rows.InsertRange(at, parts.Select(p => (p, -1)));
+                    message = $"Split \"{target.Name}\" into {parts.Count} ingredients. Check the amounts.";
+                    split = true;
+                }
+            }
+            catch (FoodVisionException ex)
+            {
+                log.LogWarning("Split failed: {Kind}", ex.Kind);
+                message = ex.Message;
+            }
+        }
+
+        var items = rows.Select(r => r.Item).Take(FoodAnalysisParser.MaxItems).ToList();
+        scan.ResultJson = JsonSerializer.Serialize(new FoodAnalysisResult(items, items.Sum(i => i.Calories), items.Sum(i => i.ProteinGrams),
+            items.Sum(i => i.CarbsGrams), items.Sum(i => i.FatGrams), stored.OverallConfidence, false, null, stored.Warnings));
+        await db.SaveChangesAsync(ct);
+        this.Flash(message, split ? "success" : "warning");
+        return RedirectToAction(nameof(Review), new { id = scan.Id });
     }
 
     [HttpPost]

@@ -39,6 +39,8 @@ public interface IFoodVisionService
     Task<FoodVisionOutcome> EstimateFromTextAsync(string query, CancellationToken ct);
     /// <summary>Suggests meals that fit the remaining targets. Only these numbers and the user's preference text are sent.</summary>
     Task<MealIdeasOutcome> SuggestMealsAsync(MealIdeasRequest request, CancellationToken ct);
+    /// <summary>Breaks one estimated dish (for example "chicken rice bowl") into separate ingredients.</summary>
+    Task<FoodVisionOutcome> SplitDishAsync(FoodItemAnalysis dish, CancellationToken ct);
 }
 
 /// <summary>Uses the selected provider first, then any other configured provider when the first is out of quota or down.</summary>
@@ -66,6 +68,12 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
     {
         var (meals, provider, model) = await RunAsync(p => p.GenerateJsonAsync(null, null, FoodVisionPrompt.MealIdeasSystem, FoodVisionPrompt.MealIdeasMessage(request), FoodVisionPrompt.MealIdeasSchema, ct), FoodAnalysisParser.ParseMeals);
         return new MealIdeasOutcome(meals, provider, model);
+    }
+
+    public async Task<FoodVisionOutcome> SplitDishAsync(FoodItemAnalysis dish, CancellationToken ct)
+    {
+        var (result, provider, model) = await RunAsync(p => p.GenerateJsonAsync(null, null, FoodVisionPrompt.SplitDishSystem, FoodVisionPrompt.SplitDishMessage(dish), FoodVisionPrompt.Schema, ct), FoodAnalysisParser.Parse);
+        return new FoodVisionOutcome(result, provider, model);
     }
 
     // Parsing happens after the provider call, so an unreadable answer is reported rather than retried on another provider.
