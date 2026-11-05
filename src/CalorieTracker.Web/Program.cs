@@ -34,6 +34,7 @@ var aiOptions = new AiOptions
     Provider = config["AI_PROVIDER"],
     ApiKey = config["AI_API_KEY"],
     Model = config["AI_MODEL"],
+    ModelFallbacks = config["AI_MODEL_FALLBACKS"],
     OllamaBaseUrl = config["OLLAMA_BASE_URL"],
     OllamaModel = config["OLLAMA_MODEL"],
     TimeoutSeconds = config.GetValue("AI_TIMEOUT_SECONDS", 60),
@@ -95,9 +96,11 @@ builder.Services.AddSingleton<INutritionCalculatorService, NutritionCalculatorSe
 builder.Services.AddScoped<INutritionPlanService, NutritionPlanService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddSingleton(aiOptions);
-builder.Services.AddHttpClient<GeminiFoodVisionProvider>(c => c.Timeout = TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
+builder.Services.AddHttpClient(nameof(GeminiFoodVisionProvider), c => c.Timeout = TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
 builder.Services.AddHttpClient<OllamaFoodVisionProvider>(c => c.Timeout = TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
-builder.Services.AddTransient<IFoodVisionProvider>(sp => sp.GetRequiredService<GeminiFoodVisionProvider>());
+foreach (var model in aiOptions.GeminiModels)
+    builder.Services.AddTransient<IFoodVisionProvider>(sp => new GeminiFoodVisionProvider(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GeminiFoodVisionProvider)), aiOptions, model, sp.GetRequiredService<ILogger<GeminiFoodVisionProvider>>()));
 builder.Services.AddTransient<IFoodVisionProvider>(sp => sp.GetRequiredService<OllamaFoodVisionProvider>());
 builder.Services.AddTransient<IFoodVisionService, FoodVisionService>();
 builder.Services.AddSingleton(new UsdaOptions { ApiKey = config["USDA_API_KEY"] });

@@ -19,7 +19,7 @@ services:
       - key: AI_API_KEY
         sync: false
       - key: AI_MODEL
-        value: gemini-3.5-flash
+        value: gemini-flash-lite-latest
       - key: USDA_API_KEY
         sync: false
       # Optional: set to "resend" only together with EMAIL_API_KEY and EMAIL_FROM_ADDRESS, or startup fails.

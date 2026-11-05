@@ -210,12 +210,12 @@ public class MealIdeasTests
 
 public class FoodVisionServiceTests
 {
-    private sealed class FakeProvider(string name, bool configured, Func<string> run) : IFoodVisionProvider
+    private sealed class FakeProvider(string name, bool configured, Func<string> run, string model = "m") : IFoodVisionProvider
     {
         public int Calls;
         public (byte[]? Image, string Prompt, string Text) Last;
         public string Name => name;
-        public string Model => "m";
+        public string Model => model;
         public bool IsConfigured => configured;
         public Task<string?> GenerateJsonAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, Func<bool, JsonObject> schema, CancellationToken ct)
         {
@@ -245,6 +245,37 @@ public class FoodVisionServiceTests
         var outcome = await svc.AnalyzeAsync([1], "image/jpeg", null, default);
         Assert.Equal("ollama", outcome.Provider);
         Assert.Equal(1, gemini.Calls); // selected provider was tried first
+    }
+
+    [Theory]
+    [InlineData(FoodVisionErrorKind.RateLimited)]
+    [InlineData(FoodVisionErrorKind.QuotaExceeded)]
+    [InlineData(FoodVisionErrorKind.Unavailable)]
+    public async Task SwitchesGeminiModel_WhenOneHitsItsLimit(FoodVisionErrorKind kind)
+    {
+        var first = new FakeProvider("gemini", true, () => throw new FoodVisionException(kind, "limit"), "model-a");
+        var second = new FakeProvider("gemini", true, () => Ok, "model-b");
+        var svc = new FoodVisionService([first, second], new AiOptions { Provider = "gemini" }, NullLogger<FoodVisionService>.Instance);
+        var outcome = await svc.AnalyzeAsync([1], "image/jpeg", null, default);
+        Assert.Equal("model-b", outcome.Model); // the scan records the model that really answered
+        Assert.Equal(["gemini"], svc.ConfiguredProviders);
+    }
+
+    [Fact]
+    public async Task ReportsTheLastError_WhenEveryModelIsLimited()
+    {
+        FakeProvider Limited(string m) => new("gemini", true, () => throw new FoodVisionException(FoodVisionErrorKind.RateLimited, "limit " + m), m);
+        var svc = new FoodVisionService([Limited("a"), Limited("b")], new AiOptions(), NullLogger<FoodVisionService>.Instance);
+        var ex = await Assert.ThrowsAsync<FoodVisionException>(() => svc.AnalyzeAsync([1], "image/jpeg", null, default));
+        Assert.Equal("limit b", ex.Message);
+    }
+
+    [Fact]
+    public void GeminiModels_DefaultsCustomListsAndDuplicates()
+    {
+        Assert.Equal(["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"], new AiOptions().GeminiModels);
+        Assert.Equal(["m1", "m2", "m3"], new AiOptions { Model = "m1", ModelFallbacks = " m2, m3 ,M1" }.GeminiModels);
+        Assert.Equal(["m1"], new AiOptions { Model = "m1", ModelFallbacks = "" }.GeminiModels);
     }
 
     [Fact]

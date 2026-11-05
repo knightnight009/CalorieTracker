@@ -132,7 +132,8 @@ All settings are environment variables (ASP.NET Core also reads them from user s
 | `ASPNETCORE_ENVIRONMENT` | prod: `Production` | Set in the Dockerfile. |
 | `AI_PROVIDER` | no | `gemini` or `ollama`: which configured provider to try first. If it's out of quota or down, the other configured one is tried. |
 | `AI_API_KEY` | no | Gemini API key (enables the Gemini provider). |
-| `AI_MODEL` | no | Default `gemini-3.5-flash`. |
+| `AI_MODEL` | no | Default `gemini-flash-lite-latest`. |
+| `AI_MODEL_FALLBACKS` | no | Comma-separated Gemini models to try next on a rate limit, overload or retired model. Default `gemini-3.5-flash-lite,gemini-3.1-flash-lite`. Set it empty to turn switching off. |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | no | Local Ollama vision model (default `qwen2.5vl:7b`). |
 | `AI_TIMEOUT_SECONDS` | no | Default 60. |
 | `AI_SCANS_PER_MINUTE` | no | Per-user rate limit, default 6. |
@@ -152,7 +153,7 @@ At startup the app checks configuration. A missing required value stops it with 
 
 ### Google Gemini (default, hosted, free tier)
 
-As of October 2026 the default is `gemini-3.5-flash` (free tier, image input, structured JSON). Google retires older models for **new** API keys: `gemini-2.5-flash` now returns 404 "no longer available to new users". If you see "The configured AI model wasn't found", list the models your key can use and set `AI_MODEL` to a current flash model (`gemini-flash-latest` tracks the newest one automatically but is often busier). Free-tier rate limits are per project and change often, so check the [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits) pages.
+As of November 2026 the default is `gemini-flash-lite-latest`, then `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` when a model is rate limited, overloaded, timing out or retired. All three accepted image input and structured JSON when tested. Switching only helps with limits Google counts per model; check yours at <https://aistudio.google.com/rate-limit>. A request that times out on every model can take up to 3 × `AI_TIMEOUT_SECONDS`. Google retires older models for **new** API keys: `gemini-2.5-flash` returns 404 "no longer available to new users". Free-tier limits change often, so check the [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits) pages.
 
 1. Create a key at <https://aistudio.google.com/apikey>.
 2. Set `AI_PROVIDER=gemini`, `AI_API_KEY=<key>` and optionally `AI_MODEL`.
@@ -341,7 +342,7 @@ dotnet test
 | First page load takes ~1 minute | Render free instance waking up (plus Neon compute resume). Expected. |
 | Everyone was logged out after a deploy | Shouldn't happen: data-protection keys are in the `DataProtectionKeys` table. Check the DB connection. |
 | "The AI provider's free quota is used up" | Gemini free-tier limit reached. Wait, configure Ollama as a fallback, or add food manually. |
-| "The configured AI model wasn't found" | Google retired that model for new keys. Set `AI_MODEL` to a current one (default `gemini-3.5-flash`). List yours with `curl -H "x-goog-api-key: $KEY" https://generativelanguage.googleapis.com/v1beta/models`. |
+| "The configured AI model wasn't found" | Google retired that model for new keys. Set `AI_MODEL` to a current one (default `gemini-flash-lite-latest`). List yours with `curl -H "x-goog-api-key: $KEY" https://generativelanguage.googleapis.com/v1beta/models`. |
 | "The AI service had a problem" (503) | Google reports the model is overloaded. Try again later, or use a less busy model such as `gemini-flash-lite-latest`. |
 | USDA search shows "couldn't be reached" | Check `USDA_API_KEY`, or wait if the API is down. Manual entry still works. |
 | Confirmation email never arrives | Check the Resend dashboard logs and that the sender domain is verified. |

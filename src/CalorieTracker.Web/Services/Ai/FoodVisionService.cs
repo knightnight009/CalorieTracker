@@ -10,9 +10,17 @@ public class AiOptions
     public string? Provider { get; set; }
     public string? ApiKey { get; set; }
     public string? Model { get; set; }
+    /// <summary>Comma-separated models to try when <see cref="Model"/> is rate limited, overloaded or retired. Empty turns switching off.</summary>
+    public string? ModelFallbacks { get; set; }
     public string? OllamaBaseUrl { get; set; }
     public string? OllamaModel { get; set; }
     public int TimeoutSeconds { get; set; } = 60;
+
+    /// <summary>Gemini models in the order to try them.</summary>
+    public IReadOnlyList<string> GeminiModels =>
+        new[] { string.IsNullOrWhiteSpace(Model) ? "gemini-flash-lite-latest" : Model.Trim() }
+            .Concat((ModelFallbacks ?? "gemini-3.5-flash-lite,gemini-3.1-flash-lite").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 }
 
 public interface IFoodVisionProvider
@@ -50,7 +58,7 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
         .OrderBy(p => string.Equals(p.Name, options.Provider, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToList();
 
     public bool IsConfigured => _ordered.Count > 0;
-    public IReadOnlyList<string> ConfiguredProviders => _ordered.Select(p => p.Name).ToList();
+    public IReadOnlyList<string> ConfiguredProviders => _ordered.Select(p => p.Name).Distinct().ToList();
 
     public async Task<FoodVisionOutcome> AnalyzeAsync(byte[] image, string mimeType, string? userContext, CancellationToken ct)
     {
@@ -92,7 +100,7 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
             }
             catch (FoodVisionException ex) when (ex.CanFallBack)
             {
-                log.LogWarning("Vision provider {Provider} failed with {Kind}; trying the next configured provider if any.", p.Name, ex.Kind);
+                log.LogWarning("Vision provider {Provider} model {Model} failed with {Kind}; trying the next configured one if any.", p.Name, p.Model, ex.Kind);
                 last = ex;
             }
         }
@@ -100,10 +108,11 @@ public class FoodVisionService(IEnumerable<IFoodVisionProvider> providers, AiOpt
     }
 }
 
-public class GeminiFoodVisionProvider(HttpClient http, AiOptions options, ILogger<GeminiFoodVisionProvider> log) : IFoodVisionProvider
+/// <summary>One Gemini model. Program.cs registers one per entry in AiOptions.GeminiModels, so FoodVisionService switches between them.</summary>
+public class GeminiFoodVisionProvider(HttpClient http, AiOptions options, string model, ILogger<GeminiFoodVisionProvider> log) : IFoodVisionProvider
 {
     public string Name => "gemini";
-    public string Model => string.IsNullOrWhiteSpace(options.Model) ? "gemini-3.5-flash" : options.Model;
+    public string Model => model;
     public bool IsConfigured => !string.IsNullOrWhiteSpace(options.ApiKey);
 
     public async Task<string?> GenerateJsonAsync(byte[]? image, string? mimeType, string systemPrompt, string userText, Func<bool, JsonObject> schema, CancellationToken ct)
