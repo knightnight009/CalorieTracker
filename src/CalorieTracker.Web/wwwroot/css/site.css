@@ -155,6 +155,7 @@ a { text-underline-offset: 2px; }
 /* ---------- Scanner ---------- */
 .dropzone { border: 2px dashed #c6d0da; border-radius: var(--ct-radius); background: var(--ct-surface-2); padding: 2rem 1rem; text-align: center; cursor: pointer; position: relative; }
 .dropzone:hover, .dropzone.dragover { border-color: var(--ct-brand); background: var(--ct-brand-soft); }
+@media (pointer: fine) { .touch-only { display: none; } }
 .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .preview-img { max-height: 320px; width: 100%; object-fit: contain; border-radius: var(--ct-radius-sm); background: #0001; }
 .confidence { display: inline-flex; align-items: center; gap: .3rem; font-size: .82rem; font-weight: 600; border-radius: 999px; padding: .1rem .5rem; }

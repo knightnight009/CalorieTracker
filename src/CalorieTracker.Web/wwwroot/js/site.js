@@ -122,6 +122,14 @@
     const preview = document.getElementById('preview');
     const prompt = document.getElementById('dropPrompt');
     const zone = document.getElementById('dropzone');
+    // capture forces the camera and hides the gallery, so it's set only for a tap on Take photo.
+    let useCamera = false;
+    input.addEventListener('click', () => {
+      if (useCamera) input.setAttribute('capture', 'environment'); else input.removeAttribute('capture');
+      useCamera = false;
+    });
+    document.getElementById('takePhoto').addEventListener('click', () => { useCamera = true; input.click(); });
+    document.getElementById('choosePhoto').addEventListener('click', () => input.click());
     const maxBytes = 8 * 1024 * 1024, maxSide = 1600;
 
     ['dragenter', 'dragover'].forEach((t) => zone.addEventListener(t, () => zone.classList.add('dragover')));
